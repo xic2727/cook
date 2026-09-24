@@ -70,6 +70,19 @@ FALLBACK_BREAKFASTS = [
             "3. 盛入温热小碗，温度适中后即可趁热享用"
         ],
         "cooking_tip": "热腾腾的汤面早晨最养胃，面条稍剪短些更易吞咽"
+    },
+    {
+        "title": "鲜肉小馄饨汤 + 水煮蛋",
+        "meal_type": "breakfast",
+        "nutrition_tag": "温热暖胃 · 优质蛋白",
+        "prep_time": "15分钟",
+        "ingredients": ["小馄饨10个", "鸡蛋1个", "紫菜少许", "虾皮1小勺"],
+        "steps": [
+            "1. 锅中水开下入洗净的小馄饨，中小火煮至浮起断生",
+            "2. 碗底放入少许紫菜、虾皮、微量盐和香油，舀入两勺沸热原汤化开",
+            "3. 盛入小馄饨与对半切开的水煮蛋，撒少许葱花趁热享用"
+        ],
+        "cooking_tip": "加少许虾皮紫菜提鲜又补钙，温热清润"
     }
 ]
 
@@ -99,6 +112,19 @@ FALLBACK_DINNERS = [
             "3. 另起小锅番茄炒出红汁加水煮沸，淋入蛋花撒葱花煮成开胃汤"
         ],
         "cooking_tip": "色彩丰富鲜艳，有效提升用餐食欲"
+    },
+    {
+        "title": "清蒸鲈鱼片 + 鲜菇冬瓜汤",
+        "meal_type": "dinner",
+        "nutrition_tag": "优质DHA · 清润低脂",
+        "prep_time": "25分钟",
+        "ingredients": ["鲈鱼肉200g", "冬瓜1块", "白玉菇半盒", "姜丝少许"],
+        "steps": [
+            "1. 鲈鱼片摆盘放姜丝，水开上汽大火蒸6分钟，出锅淋少许低钠蒸鱼豉油",
+            "2. 冬瓜切薄片，白玉菇去根洗净备用",
+            "3. 锅中加水煮沸下入菌菇与冬瓜片煮5分钟至透明，加少许盐和香油调味"
+        ],
+        "cooking_tip": "鱼肉无刺软嫩鲜美，搭配清甜冬瓜汤轻盈少负担"
     }
 ]
 
@@ -135,28 +161,42 @@ def get_client() -> Optional[OpenAI]:
         base_url=base_url
     )
 
-def generate_meal(meal_type: str = "breakfast", custom_prompt: str = "") -> Dict[str, Any]:
-    """生成单道餐点（breakfast 或 dinner）"""
+def generate_meal_options(meal_type: str = "breakfast", count: int = 3, custom_prompt: str = "") -> List[Dict[str, Any]]:
+    """生成指定餐点类型的多套候选方案（默认3套）"""
     client = get_client()
     inventory_text = database.get_all_ingredients_text()
     recent_titles = database.get_recent_menu_titles(days=4)
     recent_text = f"最近几天已吃过的菜品（请避免重复）：{', '.join(recent_titles)}" if recent_titles else "暂无近期重复菜品"
     
+    meal_desc = '活力早餐（耗时<=20分钟，营养快手暖胃）' if meal_type == 'breakfast' else '营养晚餐（耗时<=35分钟，荤素均衡清淡）'
     user_prompt = f"""
-请设计一份【{'活力早餐' if meal_type == 'breakfast' else '营养晚餐'}】。
+请为今日规划 {count} 道各不相同的【{meal_desc}】候选方案。
 
 {inventory_text}
 {recent_text}
 
-特殊额外要求：{custom_prompt if custom_prompt else "请平衡营养与口感，步骤控制在极简3步以内。"}
-请严格以 JSON 格式输出该餐点。
-"""
+特殊额外要求：{custom_prompt if custom_prompt else "请平衡营养与口感，严格满足3步极简烹饪。"}
 
+严格输出 JSON 格式如下：
+{{
+  "options": [
+    {{
+      "title": "菜品名称",
+      "meal_type": "{meal_type}",
+      "nutrition_tag": "营养标签",
+      "prep_time": "15分钟",
+      "ingredients": ["食材1 数量", "食材2 数量"],
+      "steps": ["1. 动作...", "2. 动作...", "3. 动作..."],
+      "cooking_tip": "一句贴士"
+    }}
+  ]
+}}
+要求：options 数组恰好包含 {count} 个候选对象。
+"""
     if not client:
-        logger.warning("未配置 MINIMAX_API_KEY，使用智能兜底食谱")
+        logger.warning(f"未配置 MINIMAX_API_KEY，使用兜底候选池")
         pool = FALLBACK_BREAKFASTS if meal_type == "breakfast" else FALLBACK_DINNERS
-        import random
-        return random.choice(pool)
+        return pool[:count]
 
     try:
         response = client.chat.completions.create(
@@ -169,21 +209,127 @@ def generate_meal(meal_type: str = "breakfast", custom_prompt: str = "") -> Dict
         )
         content = response.choices[0].message.content
         data = extract_json_from_model_output(content)
-        data['meal_type'] = meal_type
-        return data
-    except Exception as e:
-        logger.error(f"调用 MiniMax 生成菜谱失败: {e}，启用兜底方案")
+        options = data.get("options", []) if isinstance(data, dict) else (data if isinstance(data, list) else [])
+        for opt in options:
+            opt["meal_type"] = meal_type
+        if len(options) >= count:
+            return options[:count]
+        
+        # 补全不足
         pool = FALLBACK_BREAKFASTS if meal_type == "breakfast" else FALLBACK_DINNERS
-        import random
-        return random.choice(pool)
+        for p in pool:
+            if len(options) >= count:
+                break
+            if not any(o.get("title") == p["title"] for o in options):
+                options.append(p)
+        return options[:count]
+    except Exception as e:
+        logger.error(f"生成 {meal_type} 候选方案失败: {e}，启用兜底")
+        pool = FALLBACK_BREAKFASTS if meal_type == "breakfast" else FALLBACK_DINNERS
+        return pool[:count]
+
+def generate_full_day_options(custom_prompt: str = "") -> Dict[str, List[Dict[str, Any]]]:
+    """一次性生成今日 3 道候选早餐和 3 道候选晚餐"""
+    client = get_client()
+    inventory_text = database.get_all_ingredients_text()
+    recent_titles = database.get_recent_menu_titles(days=4)
+    recent_text = f"最近几天已吃过的菜品（请避免重复）：{', '.join(recent_titles)}" if recent_titles else "暂无近期重复菜品"
+
+    user_prompt = f"""
+请为今日规划 3 道不同的候选早餐（制作耗时<=20分钟，营养快手暖胃）和 3 道不同的候选晚餐（耗时<=35分钟，荤素均衡清淡），均严格满足3步极简烹饪。
+
+{inventory_text}
+{recent_text}
+
+特殊额外要求：{custom_prompt if custom_prompt else "请平衡营养与口感，充分利用冰箱现有及临期食材。"}
+
+请严格输出合法的 JSON 对象，格式如下：
+{{
+  "breakfasts": [
+    {{
+      "title": "菜品名称",
+      "meal_type": "breakfast",
+      "nutrition_tag": "营养标签",
+      "prep_time": "15分钟",
+      "ingredients": ["食材1 数量", "食材2 数量"],
+      "steps": ["1. 动作...", "2. 动作...", "3. 动作..."],
+      "cooking_tip": "一句贴士"
+    }}
+  ],
+  "dinners": [
+    {{
+      "title": "菜品名称",
+      "meal_type": "dinner",
+      "nutrition_tag": "营养标签",
+      "prep_time": "25分钟",
+      "ingredients": ["食材1 数量", "食材2 数量"],
+      "steps": ["1. 动作...", "2. 动作...", "3. 动作..."],
+      "cooking_tip": "一句贴士"
+    }}
+  ]
+}}
+要求：breakfasts 包含恰好 3 个候选对象，dinners 包含恰好 3 个候选对象。
+"""
+    if not client:
+        logger.warning("未配置 MINIMAX_API_KEY，使用兜底候选菜谱")
+        return {
+            "breakfasts": FALLBACK_BREAKFASTS[:3],
+            "dinners": FALLBACK_DINNERS[:3]
+        }
+
+    try:
+        response = client.chat.completions.create(
+            model=config.MINIMAX_MODEL,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt}
+            ],
+            temperature=0.7
+        )
+        content = response.choices[0].message.content
+        data = extract_json_from_model_output(content)
+        breakfasts = data.get("breakfasts", [])
+        dinners = data.get("dinners", [])
+
+        for b in breakfasts:
+            b["meal_type"] = "breakfast"
+        for d in dinners:
+            d["meal_type"] = "dinner"
+
+        for fb in FALLBACK_BREAKFASTS:
+            if len(breakfasts) >= 3:
+                break
+            if not any(b.get("title") == fb["title"] for b in breakfasts):
+                breakfasts.append(fb)
+
+        for fd in FALLBACK_DINNERS:
+            if len(dinners) >= 3:
+                break
+            if not any(d.get("title") == fd["title"] for d in dinners):
+                dinners.append(fd)
+
+        return {
+            "breakfasts": breakfasts[:3],
+            "dinners": dinners[:3]
+        }
+    except Exception as e:
+        logger.error(f"批量生成今日候选方案失败: {e}，启用兜底")
+        return {
+            "breakfasts": FALLBACK_BREAKFASTS[:3],
+            "dinners": FALLBACK_DINNERS[:3]
+        }
+
+def generate_meal(meal_type: str = "breakfast", custom_prompt: str = "") -> Dict[str, Any]:
+    """生成单道餐点（兼容旧调用）"""
+    options = generate_meal_options(meal_type=meal_type, count=1, custom_prompt=custom_prompt)
+    return options[0] if options else (FALLBACK_BREAKFASTS[0] if meal_type == "breakfast" else FALLBACK_DINNERS[0])
 
 def generate_full_day_plan(custom_prompt: str = "") -> Dict[str, Any]:
-    """生成今日一日两餐搭配"""
-    breakfast = generate_meal(meal_type="breakfast", custom_prompt=custom_prompt)
-    dinner = generate_meal(meal_type="dinner", custom_prompt=custom_prompt)
+    """生成今日一日两餐搭配（兼容旧调用）"""
+    opts = generate_full_day_options(custom_prompt=custom_prompt)
     return {
-        "breakfast": breakfast,
-        "dinner": dinner
+        "breakfast": opts["breakfasts"][0],
+        "dinner": opts["dinners"][0]
     }
 
 # --- 批量食材智能提取 Prompt ---

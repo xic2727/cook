@@ -148,56 +148,70 @@ with tab_menu:
         selected_date = st.date_input("选择日期", value=today)
         date_iso = selected_date.isoformat()
         
-    # 读取所选日期的食谱
+    # 读取所选日期的食谱及候选列表
     daily_menu = database.get_daily_menu(date_iso)
     b_recipe = daily_menu.get("breakfast")
     d_recipe = daily_menu.get("dinner")
+    b_candidates = daily_menu.get("breakfast_candidates", [])
+    d_candidates = daily_menu.get("dinner_candidates", [])
 
     with col_action1:
         st.write("") # 对齐
-        if st.button("✨ 结合冰箱库存一键智能生成今日食谱", type="primary", use_container_width=True):
-            with st.spinner("👩‍🍳 正在结合冰箱食材智能规划菜谱..."):
-                plan = llm_service.generate_full_day_plan()
-                b_data = plan["breakfast"]
-                d_data = plan["dinner"]
-                
-                # 存入数据库
-                new_b_id = database.save_recipe(
-                    title=b_data["title"],
-                    meal_type="breakfast",
-                    nutrition_tag=b_data.get("nutrition_tag", ""),
-                    ingredients=b_data.get("ingredients", []),
-                    steps=b_data.get("steps", []),
-                    prep_time=b_data.get("prep_time", "15分钟"),
-                    is_favorite=0,
-                    daughter_notes=b_data.get("cooking_tip") or b_data.get("daughter_friendly_tip", "")
+        if st.button("✨ 结合库存智能生成食谱 (早晚各3套候选)", type="primary", use_container_width=True):
+            with st.spinner("👩‍🍳 正在结合冰箱食材规划早晚各 3 套候选方案..."):
+                plan = llm_service.generate_full_day_options()
+                b_ids = []
+                for b_item in plan.get("breakfasts", []):
+                    bid = database.save_recipe(
+                        title=b_item["title"],
+                        meal_type="breakfast",
+                        nutrition_tag=b_item.get("nutrition_tag", ""),
+                        ingredients=b_item.get("ingredients", []),
+                        steps=b_item.get("steps", []),
+                        prep_time=b_item.get("prep_time", "15分钟"),
+                        is_favorite=0,
+                        daughter_notes=b_item.get("cooking_tip") or ""
+                    )
+                    b_ids.append(bid)
+                    
+                d_ids = []
+                for d_item in plan.get("dinners", []):
+                    did = database.save_recipe(
+                        title=d_item["title"],
+                        meal_type="dinner",
+                        nutrition_tag=d_item.get("nutrition_tag", ""),
+                        ingredients=d_item.get("ingredients", []),
+                        steps=d_item.get("steps", []),
+                        prep_time=d_item.get("prep_time", "25分钟"),
+                        is_favorite=0,
+                        daughter_notes=d_item.get("cooking_tip") or ""
+                    )
+                    d_ids.append(did)
+                    
+                database.save_daily_menu_candidates(
+                    date_iso, b_ids, d_ids,
+                    active_b_id=b_ids[0] if b_ids else None,
+                    active_d_id=d_ids[0] if d_ids else None
                 )
-                new_d_id = database.save_recipe(
-                    title=d_data["title"],
-                    meal_type="dinner",
-                    nutrition_tag=d_data.get("nutrition_tag", ""),
-                    ingredients=d_data.get("ingredients", []),
-                    steps=d_data.get("steps", []),
-                    prep_time=d_data.get("prep_time", "25分钟"),
-                    is_favorite=0,
-                    daughter_notes=d_data.get("cooking_tip") or d_data.get("daughter_friendly_tip", "")
-                )
-                database.set_daily_menu(date_iso, new_b_id, new_d_id)
-                st.toast("今日早晚餐已生成！", icon="🍱")
+                st.toast("已生成早晚各 3 套候选方案！已默认展示第 1 套，可随时切换。", icon="🍱")
                 st.rerun()
 
     with col_action2:
         st.write("")
-        if st.button("📺 立即同步到 7.5 寸墨水屏", type="secondary", use_container_width=True):
-            with st.spinner("正在排版并推送到 800×480 墨水屏..."):
-                success, msg, _ = epd_service.sync_menu_to_screen(daily_menu, selected_date)
-                if success:
-                    database.mark_daily_menu_synced(date_iso)
-                    st.toast(msg, icon="🎉")
-                else:
-                    st.error(msg)
-                st.rerun()
+        if st.button("📺 手动更新当前展示的菜谱到墨水屏", type="secondary", use_container_width=True):
+            if not b_recipe and not d_recipe:
+                st.warning("今日尚未安排菜谱，请先生成或选用菜谱。")
+            else:
+                with st.spinner("正在排版并推送到 800×480 墨水屏..."):
+                    success, msg, _ = epd_service.sync_menu_to_screen(daily_menu, selected_date)
+                    if success:
+                        database.mark_daily_menu_synced(date_iso)
+                        st.toast(msg, icon="🎉")
+                    else:
+                        st.error(msg)
+                    st.rerun()
 
+    st.caption("💡 说明：早晚各提供 3 个方案供挑选。点击下方【方案 ① / ② / ③】可实时切换查看；确认后点击上方「手动更新当前展示的菜谱到墨水屏」即可推送到屏幕。每天早晨系统默认自动更新第 1 个方案到墨水屏。")
     st.markdown("---")
 
     # 左右两栏展示今日早餐与晚餐
@@ -206,6 +220,44 @@ with tab_menu:
     # --- 左栏：活力早餐 ---
     with col_b:
         st.markdown('### ☀️ 活力早餐 <span class="badge-breakfast">控时 ≤ 20分钟</span>', unsafe_allow_html=True)
+        if b_candidates:
+            # 找到当前激活早餐在候选中的索引
+            current_b_idx = 0
+            is_in_candidates_b = False
+            for idx, c in enumerate(b_candidates):
+                if b_recipe and c['id'] == b_recipe['id']:
+                    current_b_idx = idx
+                    is_in_candidates_b = True
+                    break
+            
+            st.markdown("**选择候选方案：**")
+            if hasattr(st, "pills"):
+                sel_b = st.pills(
+                    "选择早餐方案",
+                    options=list(range(len(b_candidates))),
+                    default=current_b_idx if is_in_candidates_b else 0,
+                    format_func=lambda i: f"方案 {i+1} · {b_candidates[i]['title']}",
+                    label_visibility="collapsed",
+                    key=f"pill_b_{date_iso}"
+                )
+            else:
+                sel_b = st.radio(
+                    "选择早餐方案",
+                    options=list(range(len(b_candidates))),
+                    index=current_b_idx if is_in_candidates_b else 0,
+                    format_func=lambda i: f"方案 {i+1} · {b_candidates[i]['title']}",
+                    horizontal=True,
+                    label_visibility="collapsed",
+                    key=f"radio_b_{date_iso}"
+                )
+                
+            if sel_b is not None and (not is_in_candidates_b or sel_b != current_b_idx):
+                database.set_active_candidate(date_iso, "breakfast", b_candidates[sel_b]["id"])
+                st.rerun()
+
+            if not is_in_candidates_b and b_recipe:
+                st.info(f"📌 当前选用了红心收藏菜品：**{b_recipe['title']}**（点击上方方案可随时切回候选方案）")
+
         if b_recipe:
             with st.container(border=True):
                 # 标题栏与红心
@@ -233,22 +285,27 @@ with tab_menu:
                 for step in b_recipe.get("steps", []):
                     st.markdown(f"- {step}")
 
-                # 早餐单独重抽 / 从红心库挑选
+                # 早餐重抽 3 套候选 / 从红心库挑选
+                st.markdown("---")
                 btn_c1, btn_c2 = st.columns(2)
                 with btn_c1:
-                    if st.button("🔄 单独换一道早餐", key="reroll_b"):
-                        with st.spinner("正在重新规划早餐..."):
-                            new_b = llm_service.generate_meal(meal_type="breakfast")
-                            b_id = database.save_recipe(
-                                title=new_b["title"],
-                                meal_type="breakfast",
-                                nutrition_tag=new_b.get("nutrition_tag", ""),
-                                ingredients=new_b.get("ingredients", []),
-                                steps=new_b.get("steps", []),
-                                prep_time=new_b.get("prep_time", "15分钟"),
-                                daughter_notes=new_b.get("cooking_tip") or new_b.get("daughter_friendly_tip", "")
-                            )
-                            database.set_daily_menu(date_iso, b_id, d_recipe["id"] if d_recipe else None)
+                    if st.button("🔄 重抽 3 套新早餐方案", key="reroll_b_3"):
+                        with st.spinner("正在重新规划 3 道早餐候选..."):
+                            new_b_list = llm_service.generate_meal_options(meal_type="breakfast", count=3)
+                            new_b_ids = []
+                            for nb in new_b_list:
+                                bid = database.save_recipe(
+                                    title=nb["title"],
+                                    meal_type="breakfast",
+                                    nutrition_tag=nb.get("nutrition_tag", ""),
+                                    ingredients=nb.get("ingredients", []),
+                                    steps=nb.get("steps", []),
+                                    prep_time=nb.get("prep_time", "15分钟"),
+                                    daughter_notes=nb.get("cooking_tip") or ""
+                                )
+                                new_b_ids.append(bid)
+                            database.update_meal_candidates(date_iso, "breakfast", new_b_ids, active_id=new_b_ids[0])
+                            st.toast("已生成 3 套全新早餐方案！", icon="✨")
                             st.rerun()
                 with btn_c2:
                     fav_b_list = database.get_recipes(meal_type="breakfast", only_favorites=True)
@@ -260,16 +317,53 @@ with tab_menu:
                         )
                         if st.button("确定选用此红心早餐", key="apply_fav_b"):
                             chosen = next(r for r in fav_b_list if r['title'] == selected_fav_b)
-                            database.set_daily_menu(date_iso, chosen["id"], d_recipe["id"] if d_recipe else None)
+                            database.set_active_candidate(date_iso, "breakfast", chosen["id"])
                             st.rerun()
                     else:
                         st.caption("暂无红心早餐，点红心收藏即可在此快速挑选")
         else:
-            st.info("今日尚未安排早餐，请点击上方“智能生成”或从下方添加。")
+            st.info("今日尚未安排早餐，请点击上方“智能生成”一键规划 3 套方案。")
 
     # --- 右栏：营养晚餐 ---
     with col_d:
         st.markdown('### 🌙 营养晚餐 <span class="badge-dinner">荤素全面搭配</span>', unsafe_allow_html=True)
+        if d_candidates:
+            current_d_idx = 0
+            is_in_candidates_d = False
+            for idx, c in enumerate(d_candidates):
+                if d_recipe and c['id'] == d_recipe['id']:
+                    current_d_idx = idx
+                    is_in_candidates_d = True
+                    break
+            
+            st.markdown("**选择候选方案：**")
+            if hasattr(st, "pills"):
+                sel_d = st.pills(
+                    "选择晚餐方案",
+                    options=list(range(len(d_candidates))),
+                    default=current_d_idx if is_in_candidates_d else 0,
+                    format_func=lambda i: f"方案 {i+1} · {d_candidates[i]['title']}",
+                    label_visibility="collapsed",
+                    key=f"pill_d_{date_iso}"
+                )
+            else:
+                sel_d = st.radio(
+                    "选择晚餐方案",
+                    options=list(range(len(d_candidates))),
+                    index=current_d_idx if is_in_candidates_d else 0,
+                    format_func=lambda i: f"方案 {i+1} · {d_candidates[i]['title']}",
+                    horizontal=True,
+                    label_visibility="collapsed",
+                    key=f"radio_d_{date_iso}"
+                )
+                
+            if sel_d is not None and (not is_in_candidates_d or sel_d != current_d_idx):
+                database.set_active_candidate(date_iso, "dinner", d_candidates[sel_d]["id"])
+                st.rerun()
+
+            if not is_in_candidates_d and d_recipe:
+                st.info(f"📌 当前选用了红心收藏菜品：**{d_recipe['title']}**（点击上方方案可随时切回候选方案）")
+
         if d_recipe:
             with st.container(border=True):
                 header_d1, header_d2 = st.columns([4, 1.2])
@@ -296,22 +390,27 @@ with tab_menu:
                 for step in d_recipe.get("steps", []):
                     st.markdown(f"- {step}")
 
-                # 晚餐单独重抽 / 从红心库挑选
+                # 晚餐重抽 3 套候选 / 从红心库挑选
+                st.markdown("---")
                 btn_d1, btn_d2 = st.columns(2)
                 with btn_d1:
-                    if st.button("🔄 单独换一道晚餐", key="reroll_d"):
-                        with st.spinner("正在重新规划晚餐..."):
-                            new_d = llm_service.generate_meal(meal_type="dinner")
-                            d_id = database.save_recipe(
-                                title=new_d["title"],
-                                meal_type="dinner",
-                                nutrition_tag=new_d.get("nutrition_tag", ""),
-                                ingredients=new_d.get("ingredients", []),
-                                steps=new_d.get("steps", []),
-                                prep_time=new_d.get("prep_time", "25分钟"),
-                                daughter_notes=new_d.get("cooking_tip") or new_d.get("daughter_friendly_tip", "")
-                            )
-                            database.set_daily_menu(date_iso, b_recipe["id"] if b_recipe else None, d_id)
+                    if st.button("🔄 重抽 3 套新晚餐方案", key="reroll_d_3"):
+                        with st.spinner("正在重新规划 3 道晚餐候选..."):
+                            new_d_list = llm_service.generate_meal_options(meal_type="dinner", count=3)
+                            new_d_ids = []
+                            for nd in new_d_list:
+                                did = database.save_recipe(
+                                    title=nd["title"],
+                                    meal_type="dinner",
+                                    nutrition_tag=nd.get("nutrition_tag", ""),
+                                    ingredients=nd.get("ingredients", []),
+                                    steps=nd.get("steps", []),
+                                    prep_time=nd.get("prep_time", "25分钟"),
+                                    daughter_notes=nd.get("cooking_tip") or ""
+                                )
+                                new_d_ids.append(did)
+                            database.update_meal_candidates(date_iso, "dinner", new_d_ids, active_id=new_d_ids[0])
+                            st.toast("已生成 3 套全新晚餐方案！", icon="✨")
                             st.rerun()
                 with btn_d2:
                     fav_d_list = database.get_recipes(meal_type="dinner", only_favorites=True)
@@ -323,12 +422,12 @@ with tab_menu:
                         )
                         if st.button("确定选用此红心晚餐", key="apply_fav_d"):
                             chosen = next(r for r in fav_d_list if r['title'] == selected_fav_d)
-                            database.set_daily_menu(date_iso, b_recipe["id"] if b_recipe else None, chosen["id"])
+                            database.set_active_candidate(date_iso, "dinner", chosen["id"])
                             st.rerun()
                     else:
                         st.caption("暂无红心晚餐，点红心收藏即可在此快速挑选")
         else:
-            st.info("今日尚未安排晚餐，请点击上方“智能生成”。")
+            st.info("今日尚未安排晚餐，请点击上方“智能生成”一键规划 3 套方案。")
 
     # --- 墨水屏 800x480 实时渲染预览 ---
     st.markdown("---")

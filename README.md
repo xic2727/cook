@@ -131,9 +131,11 @@ sudo systemctl enable cook
 sudo systemctl start cook
 ```
 
-### 7. 配置早晚定时自动静默刷屏 (可选)
+### 7. 配置早晨定时自动静默刷屏 (每天早晨默认更新第 1 个方案)
+系统支持在每天早晨无人值守自动生成菜谱并推送墨水屏。脚本会自动规划早晚各 3 套候选方案，默认选取第 1 个方案推送到墨水屏上。
 使用 `crontab -e` 添加定时任务：
 ```cron
-# 每天早晨 06:30 自动刷屏今日菜单
-30 6 * * * /usr/bin/python3 /home/pi/cook/auto_refresh.py >> /home/pi/cook/cron.log 2>&1
+# 每天早晨 06:30 自动生成今日各 3 套方案并默认将第 1 个方案推送到墨水屏
+30 6 * * * /home/pi/cook/venv/bin/python /home/pi/cook/auto_refresh.py >> /home/pi/cook/cron.log 2>&1
 ```
+*(注：若使用系统全局 Python，可将路径改为 `/usr/bin/python3`)*

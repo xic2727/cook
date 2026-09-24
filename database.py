@@ -48,11 +48,21 @@ def init_db():
                 date TEXT PRIMARY KEY,   -- 'YYYY-MM-DD'
                 breakfast_id INTEGER,
                 dinner_id INTEGER,
+                breakfast_ids TEXT,      -- JSON 数组，如 "[1, 2, 3]" 候选方案
+                dinner_ids TEXT,         -- JSON 数组，如 "[4, 5, 6]" 候选方案
                 synced_at TIMESTAMP,
                 FOREIGN KEY (breakfast_id) REFERENCES recipes(id),
                 FOREIGN KEY (dinner_id) REFERENCES recipes(id)
             )
         """)
+        
+        # 兼容已有数据库迁移 breakfast_ids 和 dinner_ids
+        cursor.execute("PRAGMA table_info(daily_menu)")
+        dm_columns = [row[1] for row in cursor.fetchall()]
+        if "breakfast_ids" not in dm_columns:
+            cursor.execute("ALTER TABLE daily_menu ADD COLUMN breakfast_ids TEXT")
+        if "dinner_ids" not in dm_columns:
+            cursor.execute("ALTER TABLE daily_menu ADD COLUMN dinner_ids TEXT")
         
         # 检查是否需要插入初始示例数据
         cursor.execute("SELECT COUNT(*) FROM inventory")
@@ -315,17 +325,130 @@ def get_daily_menu(date_str: Optional[str] = None) -> Dict[str, Any]:
         cursor.execute("SELECT * FROM daily_menu WHERE date = ?", (date_str,))
         row = cursor.fetchone()
         if not row:
-            return {"date": date_str, "breakfast": None, "dinner": None, "synced_at": None}
+            return {
+                "date": date_str,
+                "breakfast": None,
+                "dinner": None,
+                "breakfast_id": None,
+                "dinner_id": None,
+                "breakfast_candidates": [],
+                "dinner_candidates": [],
+                "breakfast_ids": [],
+                "dinner_ids": [],
+                "synced_at": None
+            }
         
-        b_id = row['breakfast_id']
-        d_id = row['dinner_id']
+        row_dict = dict(row)
+        b_id = row_dict.get('breakfast_id')
+        d_id = row_dict.get('dinner_id')
+        
+        # 解析 breakfast_ids
+        raw_b_ids = row_dict.get('breakfast_ids')
+        b_ids = []
+        if raw_b_ids:
+            try:
+                b_ids = json.loads(raw_b_ids) if isinstance(raw_b_ids, str) else raw_b_ids
+            except Exception:
+                b_ids = []
+        if not b_ids and b_id:
+            b_ids = [b_id]
+            
+        # 解析 dinner_ids
+        raw_d_ids = row_dict.get('dinner_ids')
+        d_ids = []
+        if raw_d_ids:
+            try:
+                d_ids = json.loads(raw_d_ids) if isinstance(raw_d_ids, str) else raw_d_ids
+            except Exception:
+                d_ids = []
+        if not d_ids and d_id:
+            d_ids = [d_id]
+            
+        b_candidates = [get_recipe_by_id(rid) for rid in b_ids]
+        b_candidates = [c for c in b_candidates if c is not None]
+        
+        d_candidates = [get_recipe_by_id(rid) for rid in d_ids]
+        d_candidates = [c for c in d_candidates if c is not None]
+        
+        if not b_id and b_candidates:
+            b_id = b_candidates[0]['id']
+        if not d_id and d_candidates:
+            d_id = d_candidates[0]['id']
+            
+        active_b = get_recipe_by_id(b_id) if b_id else (b_candidates[0] if b_candidates else None)
+        active_d = get_recipe_by_id(d_id) if d_id else (d_candidates[0] if d_candidates else None)
         
         return {
             "date": date_str,
-            "breakfast": get_recipe_by_id(b_id) if b_id else None,
-            "dinner": get_recipe_by_id(d_id) if d_id else None,
-            "synced_at": row['synced_at']
+            "breakfast": active_b,
+            "dinner": active_d,
+            "breakfast_id": active_b['id'] if active_b else None,
+            "dinner_id": active_d['id'] if active_d else None,
+            "breakfast_candidates": b_candidates,
+            "dinner_candidates": d_candidates,
+            "breakfast_ids": [c['id'] for c in b_candidates],
+            "dinner_ids": [c['id'] for c in d_candidates],
+            "synced_at": row_dict.get('synced_at')
         }
+
+def save_daily_menu_candidates(date_str: str, b_ids: List[int], d_ids: List[int], 
+                               active_b_id: Optional[int] = None, active_d_id: Optional[int] = None):
+    """保存当天的早晚各3套候选菜谱，并设置当前激活的菜谱（默认各取第1个）"""
+    if active_b_id is None and b_ids:
+        active_b_id = b_ids[0]
+    if active_d_id is None and d_ids:
+        active_d_id = d_ids[0]
+        
+    b_json = json.dumps(b_ids)
+    d_json = json.dumps(d_ids)
+    
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO daily_menu (date, breakfast_id, dinner_id, breakfast_ids, dinner_ids)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(date) DO UPDATE SET
+                breakfast_id = excluded.breakfast_id,
+                dinner_id = excluded.dinner_id,
+                breakfast_ids = excluded.breakfast_ids,
+                dinner_ids = excluded.dinner_ids
+        """, (date_str, active_b_id, active_d_id, b_json, d_json))
+        conn.commit()
+
+def set_active_candidate(date_str: str, meal_type: str, recipe_id: int):
+    """在 Streamlit 页面上切换某餐当前展示与同步的菜谱"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        if meal_type == "breakfast":
+            cursor.execute("""
+                INSERT INTO daily_menu (date, breakfast_id) VALUES (?, ?)
+                ON CONFLICT(date) DO UPDATE SET breakfast_id = excluded.breakfast_id
+            """, (date_str, recipe_id))
+        else:
+            cursor.execute("""
+                INSERT INTO daily_menu (date, dinner_id) VALUES (?, ?)
+                ON CONFLICT(date) DO UPDATE SET dinner_id = excluded.dinner_id
+            """, (date_str, recipe_id))
+        conn.commit()
+
+def update_meal_candidates(date_str: str, meal_type: str, candidate_ids: List[int], active_id: Optional[int] = None):
+    """单独重新生成某餐的 3 套候选方案"""
+    if active_id is None and candidate_ids:
+        active_id = candidate_ids[0]
+    c_json = json.dumps(candidate_ids)
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        if meal_type == "breakfast":
+            cursor.execute("""
+                INSERT INTO daily_menu (date, breakfast_id, breakfast_ids) VALUES (?, ?, ?)
+                ON CONFLICT(date) DO UPDATE SET breakfast_id = excluded.breakfast_id, breakfast_ids = excluded.breakfast_ids
+            """, (date_str, active_id, c_json))
+        else:
+            cursor.execute("""
+                INSERT INTO daily_menu (date, dinner_id, dinner_ids) VALUES (?, ?, ?)
+                ON CONFLICT(date) DO UPDATE SET dinner_id = excluded.dinner_id, dinner_ids = excluded.dinner_ids
+            """, (date_str, active_id, c_json))
+        conn.commit()
 
 def set_daily_menu(date_str: str, breakfast_id: Optional[int], dinner_id: Optional[int]):
     with get_connection() as conn:
