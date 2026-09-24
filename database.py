@@ -154,6 +154,33 @@ def add_inventory_item(name: str, category: str, quantity: str = "适量", is_ur
         conn.commit()
     return True
 
+def batch_add_inventory_items(items: List[Dict[str, Any]]) -> int:
+    """批量新增或更新食材，返回成功处理条数"""
+    if not items:
+        return 0
+    count = 0
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        for item in items:
+            name = item.get("name", "").strip()
+            if not name:
+                continue
+            category = item.get("category", "蔬菜瓜果")
+            quantity = item.get("quantity", "适量")
+            is_urgent = 1 if item.get("is_urgent") else 0
+            cursor.execute("""
+                INSERT INTO inventory (name, category, quantity, is_urgent, updated_at)
+                VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(name) DO UPDATE SET
+                    category=excluded.category,
+                    quantity=excluded.quantity,
+                    is_urgent=excluded.is_urgent,
+                    updated_at=CURRENT_TIMESTAMP
+            """, (name, category, quantity, is_urgent))
+            count += 1
+        conn.commit()
+    return count
+
 def update_inventory_item(item_id: int, quantity: str, is_urgent: int):
     with get_connection() as conn:
         cursor = conn.cursor()

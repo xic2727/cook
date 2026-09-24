@@ -359,8 +359,84 @@ with tab_inventory:
     st.markdown("### 🧊 冰箱食材库存清单")
     st.caption("系统生成菜谱时，将优先消耗标记为“⚠️需优先消耗”的临期食材，并按现有食材做菜。")
 
-    # 快捷添加食材表单
-    with st.expander("➕ 添加新采购的食材 / 蔬菜肉类", expanded=True):
+    # 1. AI 智能批量导入食材表单
+    with st.expander("✨ 智能批量录入食材 (粘贴文本 / AI 自动识别并入库)", expanded=True):
+        st.caption("直接粘贴买菜备忘录、语音录音文本、小票清单或一段口述，AI 自动提炼食材名称、类别、数量及临期状态。")
+        batch_text = st.text_area(
+            "输入食材清单文本",
+            placeholder="例如：买了2斤排骨、1盒嫩豆腐、3个西红柿、一把菠菜、一盒鲜牛奶。西红柿快软了需要尽快吃掉...",
+            height=90,
+            key="batch_ingredient_input"
+        )
+        col_btn1, _ = st.columns([2, 5])
+        with col_btn1:
+            if st.button("🤖 AI 智能解析食材", type="primary", use_container_width=True):
+                if batch_text.strip():
+                    with st.spinner("正在通过 AI 提取并整理食材清单..."):
+                        parsed_items = llm_service.parse_ingredients_from_text(batch_text)
+                        if parsed_items:
+                            st.session_state["parsed_batch_items"] = parsed_items
+                            st.toast(f"成功识别到 {len(parsed_items)} 种食材！请在下方核对确认", icon="🔍")
+                            st.rerun()
+                        else:
+                            st.warning("未能从文本中识别出有效食材，请检查输入内容。")
+                else:
+                    st.warning("请输入包含食材的文本内容。")
+
+        # 若已解析出食材，展示交互式核对表单
+        parsed = st.session_state.get("parsed_batch_items")
+        if parsed:
+            st.markdown("##### 📋 解析结果预览与确认 (支持直接在表格内修改与增删)：")
+            import pandas as pd
+            df = pd.DataFrame(parsed)
+            # 重命名列名以优化显示
+            df_display = df.rename(columns={
+                "name": "食材名称",
+                "category": "类别",
+                "quantity": "数量/份量",
+                "is_urgent": "优先消耗(临期)"
+            })
+            edited_df = st.data_editor(
+                df_display, 
+                use_container_width=True,
+                column_config={
+                    "类别": st.column_config.SelectboxColumn(
+                        "类别",
+                        options=["蔬菜瓜果", "肉禽水产", "豆蛋奶制品", "主食干货", "其他"],
+                        required=True
+                    ),
+                    "优先消耗(临期)": st.column_config.CheckboxColumn(
+                        "优先消耗(临期)",
+                        default=False
+                    )
+                },
+                num_rows="dynamic"
+            )
+            col_save, col_cancel = st.columns([2, 1])
+            with col_save:
+                if st.button("📥 确认一键保存入冰箱", type="primary", use_container_width=True):
+                    items_to_save = []
+                    for _, row in edited_df.iterrows():
+                        name_val = str(row.get("食材名称", "")).strip()
+                        if not name_val:
+                            continue
+                        items_to_save.append({
+                            "name": name_val,
+                            "category": str(row.get("类别", "蔬菜瓜果")).strip(),
+                            "quantity": str(row.get("数量/份量", "适量")).strip(),
+                            "is_urgent": 1 if row.get("优先消耗(临期)") else 0
+                        })
+                    cnt = database.batch_add_inventory_items(items_to_save)
+                    st.session_state["parsed_batch_items"] = None
+                    st.toast(f"已成功将 {cnt} 种食材存入冰箱库存！", icon="🎉")
+                    st.rerun()
+            with col_cancel:
+                if st.button("❌ 放弃导入", use_container_width=True):
+                    st.session_state["parsed_batch_items"] = None
+                    st.rerun()
+
+    # 2. 单个食材手动录入表单
+    with st.expander("➕ 单个食材手动快速添加", expanded=False):
         with st.form("add_inventory_form", clear_on_submit=True):
             col_in1, col_in2, col_in3, col_in4 = st.columns([3, 2, 2, 2])
             with col_in1:

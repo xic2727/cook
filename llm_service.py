@@ -102,6 +102,26 @@ FALLBACK_DINNERS = [
     }
 ]
 
+def extract_json_from_model_output(content: str) -> Any:
+    """过滤思考链 <think>...</think> 与 Markdown 代码块，鲁棒提取 JSON"""
+    import re
+    if not content:
+        raise ValueError("模型返回内容为空")
+    # 1. 过滤掉 <think>...</think> 思考链内容
+    cleaned = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL).strip()
+    
+    # 2. 提取 ```json ... ``` 块
+    code_match = re.search(r'```(?:json)?\s*([\{\[].*?[\}\]])\s*```', cleaned, re.DOTALL)
+    if code_match:
+        return json.loads(code_match.group(1).strip())
+        
+    # 3. 寻找最外层的 { ... } 或 [ ... ]
+    brace_match = re.search(r'([\{\[].*[\}\]])', cleaned, re.DOTALL)
+    if brace_match:
+        return json.loads(brace_match.group(1).strip())
+        
+    return json.loads(cleaned)
+
 def get_client() -> Optional[OpenAI]:
     """获取 OpenAI 兼容客户端（适配 MiniMax）"""
     api_key = config.MINIMAX_API_KEY or os.getenv("MINIMAX_API_KEY", "")
@@ -145,11 +165,10 @@ def generate_meal(meal_type: str = "breakfast", custom_prompt: str = "") -> Dict
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": user_prompt}
             ],
-            temperature=0.7,
-            response_format={"type": "json_object"}
+            temperature=0.7
         )
         content = response.choices[0].message.content
-        data = json.loads(content)
+        data = extract_json_from_model_output(content)
         data['meal_type'] = meal_type
         return data
     except Exception as e:
@@ -166,3 +185,112 @@ def generate_full_day_plan(custom_prompt: str = "") -> Dict[str, Any]:
         "breakfast": breakfast,
         "dinner": dinner
     }
+
+# --- 批量食材智能提取 Prompt ---
+BATCH_INGREDIENT_PROMPT = """你是一个专业的智能厨房库存助手。
+用户会输入一段日常语言文本（例如买菜备忘、语音转写文本、小票清单等），请从中提取出所有食材，并结构化输出为 JSON 对象。
+
+【分类规则】：
+- "蔬菜瓜果": 西红柿、土豆、青菜、胡萝卜、西兰花、茄子、黄瓜、玉米、菌菇等
+- "肉禽水产": 猪肉、牛肉、排骨、鸡肉、鸭肉、鱼、虾仁、鲜虾、肉馅、培根等
+- "豆蛋奶制品": 鸡蛋、鲜牛奶、牛奶、豆腐、豆浆、内酯豆腐、奶酪等
+- "主食干货": 面条、大米、面粉、挂面、粉丝、腐竹、杂粮等
+- "其他": 调味品或其他无法归类的食材
+
+【识别规则】：
+1. name: 规范食材名称（如 "买了3个西红柿" -> name: "西红柿", quantity: "3个"）；
+2. quantity: 份量或数量（如 "2斤"、"3个"、"1盒"，未提及则填 "适量"）；
+3. is_urgent: 是否优先消耗（1 或 0）。如果文本提到"快坏了"、"尽快吃"、"先吃"、"临期"、"开封了"等，填 1，否则填 0；
+4. 过滤掉非食材物品。
+
+【输出格式要求】：
+严格输出 JSON 对象，格式如下：
+{
+  "ingredients": [
+    {"name": "西红柿", "category": "蔬菜瓜果", "quantity": "3个", "is_urgent": 1},
+    {"name": "鲜排骨", "category": "肉禽水产", "quantity": "2斤", "is_urgent": 0}
+  ]
+}
+"""
+
+def parse_ingredients_from_text(raw_text: str) -> List[Dict[str, Any]]:
+    """通过 AI 解析自然语言文本中的食材，返回结构化列表"""
+    raw_text = raw_text.strip()
+    if not raw_text:
+        return []
+        
+    client = get_client()
+    if not client:
+        return _fallback_parse_ingredients(raw_text)
+        
+    user_prompt = f"请从以下文本中提取所有食材清单并返回 JSON：\n\n{raw_text}"
+    try:
+        response = client.chat.completions.create(
+            model=config.MINIMAX_MODEL,
+            messages=[
+                {"role": "system", "content": BATCH_INGREDIENT_PROMPT},
+                {"role": "user", "content": user_prompt}
+            ],
+            temperature=0.1,
+            response_format={"type": "json_object"}
+        )
+        content = response.choices[0].message.content
+        data = extract_json_from_model_output(content)
+        if isinstance(data, dict):
+            return data.get("ingredients", [])
+        elif isinstance(data, list):
+            return data
+        return []
+    except Exception as e:
+        logger.error(f"AI 批量解析食材失败: {e}，启用规则提取兜底")
+        return _fallback_parse_ingredients(raw_text)
+
+def _fallback_parse_ingredients(text: str) -> List[Dict[str, Any]]:
+    """当无 API Key 或网络异常时的规则分词提取兜底"""
+    import re
+    tokens = re.split(r'[,，、;；\n\r\t]+', text)
+    results = []
+    
+    category_map = {
+        "肉禽水产": ["肉", "排骨", "虾", "鱼", "鸡", "鸭", "牛", "羊", "肉馅", "培根", "香肠", "肋排"],
+        "豆蛋奶制品": ["蛋", "奶", "豆腐", "豆浆", "干子", "奶酪"],
+        "主食干货": ["面", "米", "粉", "燕麦", "粉丝", "腐竹", "年糕"],
+        "蔬菜瓜果": ["菜", "西红柿", "番茄", "胡萝卜", "土豆", "黄瓜", "茄子", "玉米", "菇", "葱", "蒜", "姜", "莲藕"]
+    }
+    
+    for t in tokens:
+        t = t.strip()
+        if not t or len(t) > 25:
+            continue
+        is_urgent = 1 if re.search(r'(快|急|先吃|临期|坏|早点)', t) else 0
+        
+        # 尝试提取数量与纯名称
+        # 匹配诸如 "2斤排骨", "3个西红柿", "排骨500g"
+        qty = "适量"
+        m_qty = re.search(r'(\d+[\.\d]*\s*(?:斤|个|盒|把|条|包|袋|根|只|头|升|毫升|g|kg|克|两))', t, re.IGNORECASE)
+        name = t
+        if m_qty:
+            qty = m_qty.group(1).strip()
+            name = t.replace(qty, "").strip()
+            
+        # 清理多余语气词
+        for kw in ["买了", "还有", "记得", "快坏了", "赶紧吃", "尽快吃", "需要"]:
+            name = name.replace(kw, "")
+        name = name.strip()
+        if not name:
+            continue
+            
+        # 匹配分类
+        matched_cat = "蔬菜瓜果"
+        for cat, kw_list in category_map.items():
+            if any(kw in name for kw in kw_list):
+                matched_cat = cat
+                break
+                
+        results.append({
+            "name": name,
+            "category": matched_cat,
+            "quantity": qty,
+            "is_urgent": is_urgent
+        })
+    return results
