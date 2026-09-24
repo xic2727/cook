@@ -86,6 +86,21 @@ with st.sidebar:
             """)
     st.caption("硬件型号: 微雪 7.5inch e-Paper (B) V2 (800×480 黑白红)")
     
+    # 屏幕旋转设置
+    current_rot = getattr(config, "EPD_ROTATION", 180)
+    rot_options = [180, 0]
+    selected_rot = st.radio(
+        "墨水屏旋转方向",
+        options=rot_options,
+        index=0 if current_rot == 180 else 1,
+        format_func=lambda x: f"{x}° (推荐/外壳倒装)" if x == 180 else f"{x}° (正向)",
+        horizontal=True
+    )
+    if selected_rot != current_rot:
+        config.save_epd_rotation(selected_rot)
+        st.toast(f"已将墨水屏旋转角度更新为 {selected_rot}°", icon="🔄")
+        st.rerun()
+    
     st.divider()
     
     # MiniMax API 配置
@@ -321,10 +336,17 @@ with tab_menu:
     
     # 动态渲染当前界面的预览图
     img_prev, _, _ = renderer.render_eink_display(daily_menu, selected_date)
+    
+    col_prev_t1, col_prev_t2 = st.columns([4, 2])
+    with col_prev_t2:
+        show_rot = st.checkbox(f"🔄 预览 180° 物理旋转画面", value=False, help="勾选后在手机端查看物理墨水屏实际接收的倒置图层")
+        
+    display_img = img_prev.rotate(180) if show_rot else img_prev
+    caption_text = f"微雪 7.5inch e-Paper (B) V2 (800×480) 渲染预览 {'[物理屏已启用 180° 旋转推送]' if config.EPD_ROTATION == 180 else ''}"
     try:
-        st.image(img_prev, caption="微雪 7.5inch e-Paper (B) V2 (800×480) 渲染预览", width="stretch")
+        st.image(display_img, caption=caption_text, width="stretch")
     except TypeError:
-        st.image(img_prev, caption="微雪 7.5inch e-Paper (B) V2 (800×480) 渲染预览", use_container_width=True)
+        st.image(display_img, caption=caption_text, use_container_width=True)
     
     synced_at = daily_menu.get("synced_at")
     if synced_at:

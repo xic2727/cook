@@ -59,6 +59,13 @@ def display_on_eink(img_black: Image.Image, img_red: Image.Image) -> Tuple[bool,
     """
     将黑白单色图和红色单色图推送到 7.5寸 V2 墨水屏
     """
+    # 按照配置执行旋转 (支持 180 度翻转，适配外壳倒装与排线朝向)
+    rot = getattr(config, "EPD_ROTATION", 180)
+    if rot != 0:
+        logger.info(f"正在将墨水屏输出位图旋转 {rot} 度...")
+        img_black = img_black.rotate(rot)
+        img_red = img_red.rotate(rot)
+
     if not is_hardware_available():
         if HARDWARE_ERROR_REASON:
             msg = f"【模拟模式 (Mock)】检测到驱动加载受阻: {HARDWARE_ERROR_REASON}。请在树莓派终端运行: sudo ./setup_epd.sh 一键修复。"
@@ -71,7 +78,7 @@ def display_on_eink(img_black: Image.Image, img_red: Image.Image) -> Tuple[bool,
         logger.info("正在初始化微雪 7.5inch e-Paper (B) V2 硬件...")
         epd = epd_module.EPD()
         epd.init()
-        logger.info("硬件初始化成功，正在刷新黑白红双通道图层 (全刷约需 15~20 秒)...")
+        logger.info(f"硬件初始化成功，正在刷新黑白红双通道图层 (已旋转 {rot} 度，全刷约需 15~20 秒)...")
         
         # 将 PIL 单色位图转为硬件缓冲区数组
         buf_black = epd.getbuffer(img_black)

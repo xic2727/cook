@@ -108,6 +108,8 @@ def render_eink_display(menu_data: Dict[str, Any], target_date: Optional[date] =
     font_badge = get_font(18, bold=True)
     font_title = get_font(21, bold=True)
     font_sub = get_font(15, bold=True)
+    font_ing_title = get_font(17, bold=True)  # 食材准备标题加大一号
+    font_ing_body = get_font(16, bold=False)  # 食材清单内容加大一号
     font_body = get_font(14, bold=False)
     font_tag = get_font(13, bold=False)
     font_small = get_font(12, bold=False)
@@ -221,16 +223,16 @@ def render_eink_display(menu_data: Dict[str, Any], target_date: Optional[date] =
             except Exception:
                 ingredients = [ingredients]
                 
-        draw_prev.text((xs, cur_y), "■ 食材准备:", fill=C_BLACK, font=font_sub)
-        draw_black.text((xs, cur_y), "■ 食材准备:", fill=0, font=font_sub)
-        cur_y += 22
+        draw_prev.text((xs, cur_y), "■ 食材准备:", fill=C_BLACK, font=font_ing_title)
+        draw_black.text((xs, cur_y), "■ 食材准备:", fill=0, font=font_ing_title)
+        cur_y += 24
 
         ing_text = " · ".join(ingredients[:6]) if ingredients else "常备家常食材"
-        ing_lines = wrap_text(ing_text, font_body, max_w, draw_prev)
+        ing_lines = wrap_text(ing_text, font_ing_body, max_w, draw_prev)
         for line in ing_lines[:2]:
-            draw_prev.text((xs + 4, cur_y), line, fill=C_BLACK, font=font_body)
-            draw_black.text((xs + 4, cur_y), line, fill=0, font=font_body)
-            cur_y += 20
+            draw_prev.text((xs + 4, cur_y), line, fill=C_BLACK, font=font_ing_body)
+            draw_black.text((xs + 4, cur_y), line, fill=0, font=font_ing_body)
+            cur_y += 23
         cur_y += 6
 
         # 3.6 极简制作三步

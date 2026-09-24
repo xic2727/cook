@@ -32,15 +32,23 @@ MINIMAX_MODEL = os.getenv("MINIMAX_MODEL", "MiniMax-Text-01")
 EPD_WIDTH = int(os.getenv("EPD_WIDTH", 800))
 EPD_HEIGHT = int(os.getenv("EPD_HEIGHT", 480))
 EPD_MODE = os.getenv("EPD_MODE", "auto")
+# 画面旋转角度: 0 或 180 (默认 180°，适配大多数外壳倒装与排线出线方向)
+EPD_ROTATION = int(os.getenv("EPD_ROTATION", 180))
 
 # 缓存的渲染图片路径
 PREVIEW_IMAGE_PATH = OUTPUT_DIR / "eink_preview.png"
 EPD_BLACK_IMAGE_PATH = OUTPUT_DIR / "eink_black.bmp"
 EPD_RED_IMAGE_PATH = OUTPUT_DIR / "eink_red.bmp"
 
+def save_epd_rotation(rotation: int):
+    """保存或更新墨水屏旋转角度到 .env 文件"""
+    global EPD_ROTATION
+    EPD_ROTATION = int(rotation)
+    save_api_config(MINIMAX_API_KEY)
+
 def save_api_config(api_key: str, base_url: str = None, model: str = None):
     """保存或更新 API 配置到 .env 文件"""
-    global MINIMAX_API_KEY, MINIMAX_BASE_URL, MINIMAX_MODEL
+    global MINIMAX_API_KEY, MINIMAX_BASE_URL, MINIMAX_MODEL, EPD_ROTATION
     
     if api_key:
         MINIMAX_API_KEY = api_key
@@ -60,7 +68,8 @@ def save_api_config(api_key: str, base_url: str = None, model: str = None):
         "MINIMAX_MODEL": MINIMAX_MODEL,
         "EPD_WIDTH": str(EPD_WIDTH),
         "EPD_HEIGHT": str(EPD_HEIGHT),
-        "EPD_MODE": EPD_MODE
+        "EPD_MODE": EPD_MODE,
+        "EPD_ROTATION": str(EPD_ROTATION)
     }
     
     written_keys = set()
