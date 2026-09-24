@@ -65,11 +65,25 @@ with st.sidebar:
     st.markdown("### ⚙️ 系统状态与设置")
     
     # 硬件状态
-    hw_ok = epd_service.is_hardware_available()
-    if hw_ok:
+    hw_status = epd_service.get_hardware_status()
+    if hw_status["available"]:
         st.success("🟢 **7.5寸墨水屏：硬件已就绪** (树莓派 SPI)")
     else:
-        st.info("🟡 **墨水屏模式：模拟预览模式** (PC调试)")
+        st.warning("🟡 **墨水屏模式：模拟预览模式**")
+        with st.expander("🔧 硬件未识别诊断与排查", expanded=False):
+            if hw_status["error_reason"]:
+                st.caption("诊断原因:")
+                st.code(hw_status["error_reason"], language="text")
+            st.markdown("""
+            **在树莓派终端运行一键修复：**
+            ```bash
+            sudo ./setup_epd.sh
+            ```
+            或运行深度诊断：
+            ```bash
+            python3 diagnose_epd.py
+            ```
+            """)
     st.caption("硬件型号: 微雪 7.5inch e-Paper (B) V2 (800×480 黑白红)")
     
     st.divider()

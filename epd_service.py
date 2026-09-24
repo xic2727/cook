@@ -9,22 +9,32 @@ import renderer
 
 logger = logging.getLogger(__name__)
 
-# 尝试导入微雪官方驱动 (仅在树莓派且开启 SPI 环境下有效)
+# 硬件状态与错误记录
 HAS_HARDWARE_EPD = False
+HARDWARE_ERROR_REASON = ""
 epd_module = None
 
 try:
     from waveshare_epd import epd7in5b_V2
     HAS_HARDWARE_EPD = True
     epd_module = epd7in5b_V2
-except (ImportError, Exception):
+except Exception as e_pkg:
     try:
-        # 也可以支持把 epd7in5b_V2.py 直接放在项目根目录或 drivers/ 目录下
         import epd7in5b_V2
         HAS_HARDWARE_EPD = True
         epd_module = epd7in5b_V2
-    except (ImportError, Exception):
+    except Exception as e_local:
         HAS_HARDWARE_EPD = False
+        HARDWARE_ERROR_REASON = f"未找到驱动包 waveshare_epd ({e_pkg}) 且无本地 epd7in5b_V2 ({e_local})"
+
+def get_hardware_status() -> Dict[str, Any]:
+    """获取墨水屏硬件加载状态与详情"""
+    return {
+        "available": is_hardware_available(),
+        "error_reason": HARDWARE_ERROR_REASON,
+        "mode": config.EPD_MODE,
+        "spi_dev_exists": os.path.exists("/dev/spidev0.0")
+    }
 
 def is_hardware_available() -> bool:
     """检查是否可以直接驱动物理墨水屏"""
@@ -35,8 +45,11 @@ def display_on_eink(img_black: Image.Image, img_red: Image.Image) -> Tuple[bool,
     将黑白单色图和红色单色图推送到 7.5寸 V2 墨水屏
     """
     if not is_hardware_available():
-        msg = "【模拟模式 (Mock)】检测到当前运行在 PC / 非树莓派 SPI 环境。已成功生成 800x480 位图并在界面预览展示。"
-        logger.info(msg)
+        if HARDWARE_ERROR_REASON:
+            msg = f"【模拟模式 (Mock)】检测到驱动加载受阻: {HARDWARE_ERROR_REASON}。请在树莓派终端运行: sudo ./setup_epd.sh 一键修复。"
+        else:
+            msg = "【模拟模式 (Mock)】检测到当前运行在 PC / 非树莓派 SPI 环境。已生成 800x480 位图并在界面预览展示。"
+        logger.warning(msg)
         return True, msg
         
     try:

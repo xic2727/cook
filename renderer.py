@@ -186,13 +186,10 @@ def render_eink_display(menu_data: Dict[str, Any], target_date: Optional[date] =
         draw_prev.text((xs + badge_w + 12, 80), time_text, fill=C_GRAY, font=font_tag)
         draw_black.text((xs + badge_w + 12, 80), time_text, fill=0, font=font_tag)
 
-        # 红心最爱标记
+        # 红心标记 (仅保留纯粹的红色爱心图标)
         if data.get("is_favorite") == 1:
-            draw_heart(draw_prev, xe - 85, 84, size=10, fill=C_RED)
-            draw_heart(draw_red, xe - 85, 84, size=10, fill=0)
-            fav_text = "女儿最爱"
-            draw_prev.text((xe - 68, 79), fav_text, fill=C_RED, font=font_sub)
-            draw_red.text((xe - 68, 79), fav_text, fill=0, font=font_sub)
+            draw_heart(draw_prev, xe - 18, 85, size=12, fill=C_RED)
+            draw_heart(draw_red, xe - 18, 85, size=12, fill=0)
 
         # 3.3 菜谱大标题 (加粗黑字，自动折行)
         title = data.get("title", "未安排菜品")
