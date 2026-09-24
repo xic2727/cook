@@ -1,0 +1,43 @@
+# 环境变量与敏感配置
+.env
+.env.local
+
+# Python 缓存与编译文件
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# 虚拟环境
+venv/
+.venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# 数据库文件 (保护本地数据)
+data/*.db
+data/*.sqlite
+data/*.sqlite3
+
+# 生成的临时图片与渲染产物
+output/
+*.bmp
+*.png
+
+# 日志文件
+*.log
+cron.log
+
+# IDE 与编辑器配置
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+.DS_Store
+Thumbs.db
+
+# Streamlit 运行时缓存
+.streamlit/
