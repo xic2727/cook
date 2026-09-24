@@ -1,5 +1,7 @@
 import os
+import sys
 import logging
+from pathlib import Path
 from datetime import date
 from typing import Tuple, Dict, Any, Optional
 from PIL import Image
@@ -9,23 +11,36 @@ import renderer
 
 logger = logging.getLogger(__name__)
 
+# 确保当前目录位于 sys.path 最前列，优先加载项目内驱动
+CURRENT_DIR = str(Path(__file__).resolve().parent)
+if CURRENT_DIR not in sys.path:
+    sys.path.insert(0, CURRENT_DIR)
+
+# 避免 gpiozero 冲突
+os.environ.setdefault("GPIOZERO_PIN_FACTORY", "lgpio")
+
 # 硬件状态与错误记录
 HAS_HARDWARE_EPD = False
 HARDWARE_ERROR_REASON = ""
 epd_module = None
 
+# 1. 优先尝试本地目录下的 epd7in5b_V2 (配合我们专为树莓派 Bookworm/Trixie 打造的免报错 epdconfig)
 try:
-    from waveshare_epd import epd7in5b_V2
+    import epd7in5b_V2
     HAS_HARDWARE_EPD = True
     epd_module = epd7in5b_V2
-except Exception as e_pkg:
+    logger.info("已成功加载本地 epd7in5b_V2 墨水屏驱动！")
+except Exception as e_local:
+    # 2. 回退尝试全局安装的 waveshare_epd 驱动包
     try:
-        import epd7in5b_V2
+        from waveshare_epd import epd7in5b_V2
         HAS_HARDWARE_EPD = True
         epd_module = epd7in5b_V2
-    except Exception as e_local:
+        logger.info("已成功加载全局 waveshare_epd 驱动包！")
+    except Exception as e_pkg:
         HAS_HARDWARE_EPD = False
-        HARDWARE_ERROR_REASON = f"未找到驱动包 waveshare_epd ({e_pkg}) 且无本地 epd7in5b_V2 ({e_local})"
+        HARDWARE_ERROR_REASON = f"本地驱动加载异常 ({e_local})；全局驱动包加载异常 ({e_pkg})"
+        logger.warning(f"墨水屏驱动初始化受阻: {HARDWARE_ERROR_REASON}")
 
 def get_hardware_status() -> Dict[str, Any]:
     """获取墨水屏硬件加载状态与详情"""
