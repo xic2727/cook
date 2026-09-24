@@ -37,7 +37,7 @@ def init_db():
                 steps TEXT,              -- JSON 字符串: ["切块", "翻炒", "装盘"]
                 prep_time TEXT,          -- 如 '15分钟'
                 is_favorite INTEGER DEFAULT 0, -- 1: ❤️, 0: 普通
-                daughter_notes TEXT DEFAULT '', -- 女儿反馈/烹饪秘诀
+                daughter_notes TEXT DEFAULT '', -- 烹饪笔记/风味反馈
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
@@ -87,8 +87,8 @@ def init_db():
                     "切扇形小块方便抓握，搭配一杯温热鲜牛奶即可上桌"
                 ], ensure_ascii=False),
                 "15分钟",
-                1, # 女儿喜欢，默认红心
-                "煎得软软的，切成小三角特别喜欢吃！"
+                1, # 默认红心
+                "煎得软软的，切成小三角口感很好"
             )
             sample_dinner = (
                 "肉末滑嫩豆腐 + 清炒西兰花",

@@ -5,9 +5,9 @@
 
 set -e
 
-# 确保以 root / sudo 权限运行
-if [ "$EUID" -ne 0 ]; then
-    echo "请使用 sudo 运行此脚本: sudo ./setup_epd.sh"
+# 确保以 root / sudo 权限运行 (兼容 bash 和 dash/sh)
+if [ "$(id -u)" -ne 0 ]; then
+    echo "请使用 sudo 运行此脚本: sudo bash setup_epd.sh"
     exit 1
 fi
 
@@ -15,18 +15,48 @@ echo "======================================================"
 echo "🚀 开始为树莓派配置微雪 7.5寸 (B) V2 墨水屏驱动环境..."
 echo "======================================================"
 
-# 1. 开启硬件 SPI
-echo "▶ 步骤 1/4: 启用树莓派 SPI 接口..."
-if command -v raspi-config >/dev/null 2>&1; then
-    raspi-config nonint do_spi 0
-    echo "✅ SPI 接口已开启"
-else
-    echo "⚠️ 未找到 raspi-config，请确保 /boot/config.txt 或 /boot/firmware/config.txt 包含 dtparam=spi=on"
+# 0. 磁盘空间检查与自动清理
+echo "▶ 步骤 0/4: 检查树莓派磁盘空间..."
+ROOT_FREE_KB=$(df -k / | awk 'NR==2 {print $4}')
+if [ -n "$ROOT_FREE_KB" ] && [ "$ROOT_FREE_KB" -lt 307200 ]; then
+    echo "⚠️ 检测到磁盘剩余空间严重不足 ($((ROOT_FREE_KB / 1024)) MB)！"
+    echo "正在自动清理 apt 缓存和废弃索引..."
+    rm -rf /var/lib/apt/lists/* 2>/dev/null || true
+    apt-get clean 2>/dev/null || true
 fi
+
+# 1. 开启硬件 SPI (兼容传统系统与 Debian Bookworm/Trixie)
+echo "▶ 步骤 1/4: 启用树莓派 SPI 接口..."
+CONFIG_FILE=""
+if [ -f "/boot/firmware/config.txt" ]; then
+    CONFIG_FILE="/boot/firmware/config.txt"
+elif [ -f "/boot/config.txt" ]; then
+    CONFIG_FILE="/boot/config.txt"
+fi
+
+if [ -n "$CONFIG_FILE" ]; then
+    if ! grep -q "^dtparam=spi=on" "$CONFIG_FILE"; then
+        echo "dtparam=spi=on" >> "$CONFIG_FILE"
+        echo "✅ 已向 $CONFIG_FILE 写入 dtparam=spi=on"
+    else
+        echo "✅ $CONFIG_FILE 中已包含 dtparam=spi=on"
+    fi
+fi
+
+# 尝试调用 raspi-config
+if command -v raspi-config >/dev/null 2>&1; then
+    raspi-config nonint do_spi 0 2>/dev/null || true
+fi
+echo "✅ SPI 配置已更新"
 
 # 2. 安装系统依赖库与中文字体
 echo "▶ 步骤 2/4: 更新软件源并安装基础依赖 (spidev, Pillow, fonts)..."
-apt-get update -y
+apt-get clean || true
+apt-get update -y || {
+    echo "⚠️ apt-get update 遇到网络或缓存问题，尝试清理后重试..."
+    rm -rf /var/lib/apt/lists/*
+    apt-get update -y
+}
 apt-get install -y git python3-pip python3-pil python3-numpy python3-spidev fonts-wqy-microhei
 
 # 3. 针对树莓派 5 / Bookworm 安装正确的 GPIO 库

@@ -141,7 +141,7 @@ with tab_menu:
     with col_action1:
         st.write("") # 对齐
         if st.button("✨ 结合冰箱库存一键智能生成今日食谱", type="primary", use_container_width=True):
-            with st.spinner("👩‍🍳 营养师爸爸正在结合冰箱食材规划科学菜谱..."):
+            with st.spinner("👩‍🍳 正在结合冰箱食材智能规划菜谱..."):
                 plan = llm_service.generate_full_day_plan()
                 b_data = plan["breakfast"]
                 d_data = plan["dinner"]
@@ -155,7 +155,7 @@ with tab_menu:
                     steps=b_data.get("steps", []),
                     prep_time=b_data.get("prep_time", "15分钟"),
                     is_favorite=0,
-                    daughter_notes=b_data.get("daughter_friendly_tip", "")
+                    daughter_notes=b_data.get("cooking_tip") or b_data.get("daughter_friendly_tip", "")
                 )
                 new_d_id = database.save_recipe(
                     title=d_data["title"],
@@ -165,7 +165,7 @@ with tab_menu:
                     steps=d_data.get("steps", []),
                     prep_time=d_data.get("prep_time", "25分钟"),
                     is_favorite=0,
-                    daughter_notes=d_data.get("daughter_friendly_tip", "")
+                    daughter_notes=d_data.get("cooking_tip") or d_data.get("daughter_friendly_tip", "")
                 )
                 database.set_daily_menu(date_iso, new_b_id, new_d_id)
                 st.toast("今日早晚餐已生成！", icon="🍱")
@@ -208,7 +208,7 @@ with tab_menu:
                 st.markdown(f"**● 营养重点**：`:red[{b_recipe.get('nutrition_tag', '优质蛋白')}]` ｜ ⏱️ 预计用时: {b_recipe.get('prep_time', '15分钟')}")
                 
                 if b_recipe.get("daughter_notes"):
-                    st.info(f"💡 **爸爸小贴士**：{b_recipe['daughter_notes']}")
+                    st.info(f"💡 **烹饪贴士**：{b_recipe['daughter_notes']}")
 
                 st.markdown("**■ 食材准备**")
                 ing_list = b_recipe.get("ingredients", [])
@@ -222,7 +222,7 @@ with tab_menu:
                 btn_c1, btn_c2 = st.columns(2)
                 with btn_c1:
                     if st.button("🔄 单独换一道早餐", key="reroll_b"):
-                        with st.spinner("正在重新为女儿生成早餐..."):
+                        with st.spinner("正在重新规划早餐..."):
                             new_b = llm_service.generate_meal(meal_type="breakfast")
                             b_id = database.save_recipe(
                                 title=new_b["title"],
@@ -231,7 +231,7 @@ with tab_menu:
                                 ingredients=new_b.get("ingredients", []),
                                 steps=new_b.get("steps", []),
                                 prep_time=new_b.get("prep_time", "15分钟"),
-                                daughter_notes=new_b.get("daughter_friendly_tip", "")
+                                daughter_notes=new_b.get("cooking_tip") or new_b.get("daughter_friendly_tip", "")
                             )
                             database.set_daily_menu(date_iso, b_id, d_recipe["id"] if d_recipe else None)
                             st.rerun()
@@ -271,7 +271,7 @@ with tab_menu:
                 st.markdown(f"**● 营养重点**：`:red[{d_recipe.get('nutrition_tag', '均衡膳食')}]` ｜ ⏱️ 预计用时: {d_recipe.get('prep_time', '25分钟')}")
                 
                 if d_recipe.get("daughter_notes"):
-                    st.info(f"💡 **爸爸小贴士**：{d_recipe['daughter_notes']}")
+                    st.info(f"💡 **烹饪贴士**：{d_recipe['daughter_notes']}")
 
                 st.markdown("**■ 食材准备**")
                 ing_list = d_recipe.get("ingredients", [])
@@ -285,7 +285,7 @@ with tab_menu:
                 btn_d1, btn_d2 = st.columns(2)
                 with btn_d1:
                     if st.button("🔄 单独换一道晚餐", key="reroll_d"):
-                        with st.spinner("正在重新为女儿生成晚餐..."):
+                        with st.spinner("正在重新规划晚餐..."):
                             new_d = llm_service.generate_meal(meal_type="dinner")
                             d_id = database.save_recipe(
                                 title=new_d["title"],
@@ -294,7 +294,7 @@ with tab_menu:
                                 ingredients=new_d.get("ingredients", []),
                                 steps=new_d.get("steps", []),
                                 prep_time=new_d.get("prep_time", "25分钟"),
-                                daughter_notes=new_d.get("daughter_friendly_tip", "")
+                                daughter_notes=new_d.get("cooking_tip") or new_d.get("daughter_friendly_tip", "")
                             )
                             database.set_daily_menu(date_iso, b_recipe["id"] if b_recipe else None, d_id)
                             st.rerun()
