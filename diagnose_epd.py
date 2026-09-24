@@ -87,8 +87,8 @@ def main():
         print(f"[FAIL] 导入 waveshare_epd.epd7in5b_V2 失败！原因: {e}")
         issues.append(f"缺少或未正确安装微雪驱动: {e}")
         fix_commands.append(
-            "git clone https://github.com/waveshare/e-Paper.git /tmp/e-Paper && "
-            "cd /tmp/e-Paper/RaspberryPi_JetsonNano/python && sudo python3 setup.py install"
+            "git clone --depth 1 https://github.com/waveshare/e-Paper.git .build_driver && "
+            "cd .build_driver/RaspberryPi_JetsonNano/python && python3 setup.py install && cd - && rm -rf .build_driver"
         )
 
     # 6. 总结诊断报告

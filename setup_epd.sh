@@ -74,29 +74,48 @@ else
     apt-get install -y python3-rpi.gpio || true
 fi
 
-# 4. 下载并安装微雪官方 waveshare_epd 驱动
-echo "▶ 步骤 4/4: 安装微雪官方 e-Paper 驱动包..."
-TMP_DIR="/tmp/e-Paper-install"
-rm -rf "$TMP_DIR"
-git clone --depth 1 https://github.com/waveshare/e-Paper.git "$TMP_DIR"
-
-cd "$TMP_DIR/RaspberryPi_JetsonNano/python"
-python3 setup.py install
-
-# 如果当前项目有虚拟环境 (.venv 或 venv)，也给虚拟环境安装一份
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [ -d "$PROJECT_DIR/.venv" ]; then
-    echo "💡 检测到项目虚拟环境 .venv，正在为虚拟环境同步安装驱动..."
-    "$PROJECT_DIR/.venv/bin/python" setup.py install
-elif [ -d "$PROJECT_DIR/venv" ]; then
-    echo "💡 检测到项目虚拟环境 venv，正在为虚拟环境同步安装驱动..."
-    "$PROJECT_DIR/venv/bin/python" setup.py install
+export TMPDIR="$PROJECT_DIR/.build_cache"
+mkdir -p "$TMPDIR"
+
+# 4. 检查并安装底层 Python 依赖 (spidev 与 GPIO)
+echo "▶ 步骤 4/5: 安装 Python 底层 SPI/GPIO 依赖库..."
+# 如果存在虚拟环境，优先在虚拟环境中安装
+PIP_CMD="pip3"
+PYTHON_TARGET="python3"
+if [ -d "$PROJECT_DIR/venv" ]; then
+    PIP_CMD="$PROJECT_DIR/venv/bin/pip"
+    PYTHON_TARGET="$PROJECT_DIR/venv/bin/python"
+elif [ -d "$PROJECT_DIR/.venv" ]; then
+    PIP_CMD="$PROJECT_DIR/.venv/bin/pip"
+    PYTHON_TARGET="$PROJECT_DIR/.venv/bin/python"
 fi
 
-rm -rf "$TMP_DIR"
+$PIP_CMD install --no-cache-dir spidev || true
+$PIP_CMD install --no-cache-dir rpi-lgpio || $PIP_CMD install --no-cache-dir RPi.GPIO || true
+
+# 5. 安装微雪官方 waveshare_epd 驱动 (若已安装则直接跳过，绝不占用 /tmp)
+echo "▶ 步骤 5/5: 检查微雪官方 e-Paper 驱动包..."
+if $PYTHON_TARGET -c "import waveshare_epd" 2>/dev/null; then
+    echo "✅ 检测到 waveshare_epd 驱动包已安装，无需重新下载！"
+else
+    echo "💡 正在下载微雪驱动并编译 (本地缓存: $TMPDIR)..."
+    BUILD_DIR="$TMPDIR/e-Paper"
+    rm -rf "$BUILD_DIR"
+    git clone --depth 1 https://github.com/waveshare/e-Paper.git "$BUILD_DIR"
+    
+    cd "$BUILD_DIR/RaspberryPi_JetsonNano/python"
+    $PYTHON_TARGET setup.py install
+    
+    # 清理本地缓存
+    rm -rf "$TMPDIR"
+fi
+
+# 确保清理临时构建目录
+rm -rf "$PROJECT_DIR/.build_cache" 2>/dev/null || true
 
 echo "======================================================"
 echo "🎉 微雪墨水屏硬件环境配置完成！正在运行全面诊断..."
 echo "======================================================"
 cd "$PROJECT_DIR"
-python3 diagnose_epd.py
+$PYTHON_TARGET diagnose_epd.py

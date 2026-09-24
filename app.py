@@ -321,7 +321,10 @@ with tab_menu:
     
     # 动态渲染当前界面的预览图
     img_prev, _, _ = renderer.render_eink_display(daily_menu, selected_date)
-    st.image(img_prev, caption="微雪 7.5inch e-Paper (B) V2 (800×480) 渲染预览", use_container_width=True)
+    try:
+        st.image(img_prev, caption="微雪 7.5inch e-Paper (B) V2 (800×480) 渲染预览", width="stretch")
+    except TypeError:
+        st.image(img_prev, caption="微雪 7.5inch e-Paper (B) V2 (800×480) 渲染预览", use_container_width=True)
     
     synced_at = daily_menu.get("synced_at")
     if synced_at:
