@@ -27,9 +27,12 @@ output/
 *.bmp
 *.png
 
-# 日志文件
+# 日志与进程文件
 *.log
+*.pid
 cron.log
+app.log
+app.pid
 
 # IDE 与编辑器配置
 .vscode/

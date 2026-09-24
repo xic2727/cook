@@ -100,14 +100,38 @@ cd e-Paper/RaspberryPi_JetsonNano/python
 sudo python3 setup.py install
 ```
 
-### 5. 运行服务
+### 5. 使用脚本启动服务
+进入项目目录并赋予脚本执行权限：
 ```bash
 cd /path/to/cook
-streamlit run app.py --server.port=8501 --server.address=0.0.0.0
+chmod +x run.sh
 ```
-在手机或平板浏览器输入 `http://<树莓派IP>:8501` 即可随时随地管理冰箱、制定菜谱与一键推屏！
+* **前台运行** (调试查看实时输出，按 `Ctrl+C` 退出)：
+  ```bash
+  ./run.sh
+  ```
+* **后台运行** (守护进程常驻，关闭终端不中断)：
+  ```bash
+  ./run.sh start      # 启动后台服务
+  ./run.sh status     # 查看运行状态与手机访问地址
+  ./run.sh log        # 实时查看日志
+  ./run.sh stop       # 停止服务
+  ./run.sh restart    # 重启服务
+  ```
+启动后终端会自动打印本机的局域网 IP（例如 `http://192.168.1.100:8501`），手机直接浏览器打开即可使用！
 
-### 6. 配置早晚定时自动静默刷屏 (可选)
+### 6. 开机自启 (可选 - 制作成系统服务)
+如果希望树莓派通电开机后自动启动服务，可以使用内置的 systemd 模板：
+```bash
+sudo cp cook.service.example /etc/systemd/system/cook.service
+# 根据实际安装路径编辑 WorkingDirectory 和 ExecStart
+sudo nano /etc/systemd/system/cook.service
+sudo systemctl daemon-reload
+sudo systemctl enable cook
+sudo systemctl start cook
+```
+
+### 7. 配置早晚定时自动静默刷屏 (可选)
 使用 `crontab -e` 添加定时任务：
 ```cron
 # 每天早晨 06:30 自动刷屏今日菜单

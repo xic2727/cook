@@ -1,0 +1,19 @@
+[Unit]
+Description=Kitchen Daily Recipe & 7.5inch E-Ink Service
+After=network.target
+
+[Service]
+Type=simple
+# 请根据实际树莓派用户名修改，默认通常为 pi
+User=pi
+# 请根据实际项目解压/克隆路径修改
+WorkingDirectory=/home/pi/cook
+# 启动命令 (如果有虚拟环境，换成 /home/pi/cook/venv/bin/streamlit)
+ExecStart=/usr/bin/python3 -m streamlit run app.py --server.port 8501 --server.address 0.0.0.0 --server.headless true
+Restart=always
+RestartSec=5
+StandardOutput=append:/home/pi/cook/app.log
+StandardError=append:/home/pi/cook/app.log
+
+[Install]
+WantedBy=multi-user.target
