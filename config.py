@@ -28,6 +28,9 @@ MINIMAX_API_KEY = os.getenv("MINIMAX_API_KEY", "")
 MINIMAX_BASE_URL = os.getenv("MINIMAX_BASE_URL", "https://api.minimax.chat/v1")
 MINIMAX_MODEL = os.getenv("MINIMAX_MODEL", "MiniMax-Text-01")
 
+# 菜谱生成模式: "free" (自由推荐模式，不依赖冰箱库存，默认) 或 "inventory" (结合冰箱库存模式)
+RECIPE_MODE = os.getenv("RECIPE_MODE", "free")
+
 # 墨水屏硬件参数 (7.5寸 V2 黑白红)
 EPD_WIDTH = int(os.getenv("EPD_WIDTH", 800))
 EPD_HEIGHT = int(os.getenv("EPD_HEIGHT", 480))
@@ -40,15 +43,21 @@ PREVIEW_IMAGE_PATH = OUTPUT_DIR / "eink_preview.png"
 EPD_BLACK_IMAGE_PATH = OUTPUT_DIR / "eink_black.bmp"
 EPD_RED_IMAGE_PATH = OUTPUT_DIR / "eink_red.bmp"
 
+def save_recipe_mode(mode: str):
+    """保存或更新菜谱生成模式到 .env 文件"""
+    global RECIPE_MODE
+    RECIPE_MODE = str(mode)
+    save_api_config(MINIMAX_API_KEY)
+
 def save_epd_rotation(rotation: int):
     """保存或更新墨水屏旋转角度到 .env 文件"""
     global EPD_ROTATION
     EPD_ROTATION = int(rotation)
     save_api_config(MINIMAX_API_KEY)
 
-def save_api_config(api_key: str, base_url: str = None, model: str = None):
+def save_api_config(api_key: str, base_url: str = None, model: str = None, recipe_mode: str = None):
     """保存或更新 API 配置到 .env 文件"""
-    global MINIMAX_API_KEY, MINIMAX_BASE_URL, MINIMAX_MODEL, EPD_ROTATION
+    global MINIMAX_API_KEY, MINIMAX_BASE_URL, MINIMAX_MODEL, EPD_ROTATION, RECIPE_MODE
     
     if api_key:
         MINIMAX_API_KEY = api_key
@@ -56,6 +65,8 @@ def save_api_config(api_key: str, base_url: str = None, model: str = None):
         MINIMAX_BASE_URL = base_url
     if model:
         MINIMAX_MODEL = model
+    if recipe_mode:
+        RECIPE_MODE = str(recipe_mode)
         
     lines = []
     if ENV_PATH.exists():
@@ -69,7 +80,8 @@ def save_api_config(api_key: str, base_url: str = None, model: str = None):
         "EPD_WIDTH": str(EPD_WIDTH),
         "EPD_HEIGHT": str(EPD_HEIGHT),
         "EPD_MODE": EPD_MODE,
-        "EPD_ROTATION": str(EPD_ROTATION)
+        "EPD_ROTATION": str(EPD_ROTATION),
+        "RECIPE_MODE": RECIPE_MODE
     }
     
     written_keys = set()

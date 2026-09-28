@@ -102,6 +102,31 @@ with st.sidebar:
         st.rerun()
     
     st.divider()
+
+    # 菜谱生成模式设置
+    st.markdown("#### 🍲 菜谱生成模式")
+    current_mode = getattr(config, "RECIPE_MODE", "free")
+    if "sidebar_recipe_mode_radio" not in st.session_state:
+        st.session_state["sidebar_recipe_mode_radio"] = current_mode
+    if "tab_recipe_mode_radio" not in st.session_state:
+        st.session_state["tab_recipe_mode_radio"] = current_mode
+
+    mode_options = ["free", "inventory"]
+    selected_mode_sidebar = st.radio(
+        "默认生成模式",
+        options=mode_options,
+        index=0 if st.session_state["sidebar_recipe_mode_radio"] == "free" else 1,
+        format_func=lambda x: "🌟 自由推荐 (不依赖库存，默认)" if x == "free" else "🧊 结合库存 (优先消耗冰箱食材)",
+        key="sidebar_recipe_mode_radio"
+    )
+    if selected_mode_sidebar != current_mode:
+        config.save_recipe_mode(selected_mode_sidebar)
+        st.session_state["sidebar_recipe_mode_radio"] = selected_mode_sidebar
+        st.session_state["tab_recipe_mode_radio"] = selected_mode_sidebar
+        st.toast(f"已将菜谱生成模式更新为：{'🌟 自由推荐模式 (不依赖库存)' if selected_mode_sidebar == 'free' else '🧊 结合库存模式'}", icon="🍲")
+        st.rerun()
+    
+    st.divider()
     
     # MiniMax API 配置
     st.markdown("#### 🤖 MiniMax AI 配置")
@@ -141,13 +166,39 @@ tab_menu, tab_inventory, tab_favorites = st.tabs([
 # TAB 1: 今日食谱 & 墨水屏同步工作台
 # =========================================================================
 with tab_menu:
-    # 顶部工具栏
-    col_date, col_action1, col_action2 = st.columns([2, 2.5, 2.5])
+    current_mode = getattr(config, "RECIPE_MODE", "free")
+    if "sidebar_recipe_mode_radio" not in st.session_state:
+        st.session_state["sidebar_recipe_mode_radio"] = current_mode
+    if "tab_recipe_mode_radio" not in st.session_state:
+        st.session_state["tab_recipe_mode_radio"] = current_mode
+
+    # 顶部工具栏：日期与菜谱生成模式
+    col_date, col_mode = st.columns([2.5, 4.5])
     with col_date:
         today = date.today()
         selected_date = st.date_input("选择日期", value=today)
         date_iso = selected_date.isoformat()
-        
+    with col_mode:
+        st.markdown("**菜谱生成模式：**")
+        selected_mode_tab = st.radio(
+            "选择生成模式",
+            options=["free", "inventory"],
+            index=0 if st.session_state["tab_recipe_mode_radio"] == "free" else 1,
+            format_func=lambda x: "🌟 自由推荐模式 (不依赖库存，默认)" if x == "free" else "🧊 结合冰箱库存模式 (优先消耗临期)",
+            horizontal=True,
+            label_visibility="collapsed",
+            key="tab_recipe_mode_radio"
+        )
+        if selected_mode_tab != current_mode:
+            config.save_recipe_mode(selected_mode_tab)
+            st.session_state["sidebar_recipe_mode_radio"] = selected_mode_tab
+            st.session_state["tab_recipe_mode_radio"] = selected_mode_tab
+            st.toast(f"已切换为：{'🌟 自由推荐模式 (不依赖库存)' if selected_mode_tab == 'free' else '🧊 结合冰箱库存模式'}", icon="🍲")
+            st.rerun()
+        active_mode = selected_mode_tab
+
+    is_free = (active_mode == "free")
+
     # 读取所选日期的食谱及候选列表
     daily_menu = database.get_daily_menu(date_iso)
     b_recipe = daily_menu.get("breakfast")
@@ -155,11 +206,14 @@ with tab_menu:
     b_candidates = daily_menu.get("breakfast_candidates", [])
     d_candidates = daily_menu.get("dinner_candidates", [])
 
+    col_action1, col_action2 = st.columns([1, 1])
+
     with col_action1:
-        st.write("") # 对齐
-        if st.button("✨ 结合库存智能生成食谱 (早晚各3套候选)", type="primary", use_container_width=True):
-            with st.spinner("👩‍🍳 正在结合冰箱食材规划早晚各 3 套候选方案..."):
-                plan = llm_service.generate_full_day_options()
+        btn_label = "✨ 自由智能生成食谱 (早晚各3套候选)" if is_free else "✨ 结合库存智能生成食谱 (早晚各3套候选)"
+        spinner_msg = "👩‍🍳 正在自由精选优质食材，规划早晚各 3 套候选方案..." if is_free else "👩‍🍳 正在结合冰箱食材规划早晚各 3 套候选方案..."
+        if st.button(btn_label, type="primary", use_container_width=True):
+            with st.spinner(spinner_msg):
+                plan = llm_service.generate_full_day_options(use_inventory=(not is_free))
                 b_ids = []
                 for b_item in plan.get("breakfasts", []):
                     bid = database.save_recipe(
@@ -193,11 +247,11 @@ with tab_menu:
                     active_b_id=b_ids[0] if b_ids else None,
                     active_d_id=d_ids[0] if d_ids else None
                 )
-                st.toast("已生成早晚各 3 套候选方案！已默认展示第 1 套，可随时切换。", icon="🍱")
+                toast_msg = "已在自由推荐模式下生成早晚各 3 套候选方案！已默认展示第 1 套。" if is_free else "已结合冰箱食材生成早晚各 3 套候选方案！已默认展示第 1 套。"
+                st.toast(toast_msg, icon="🍱")
                 st.rerun()
 
     with col_action2:
-        st.write("")
         if st.button("📺 手动更新当前展示的菜谱到墨水屏", type="secondary", use_container_width=True):
             if not b_recipe and not d_recipe:
                 st.warning("今日尚未安排菜谱，请先生成或选用菜谱。")
@@ -211,7 +265,8 @@ with tab_menu:
                         st.error(msg)
                     st.rerun()
 
-    st.caption("💡 说明：早晚各提供 3 个方案供挑选。点击下方【方案 ① / ② / ③】可实时切换查看；确认后点击上方「手动更新当前展示的菜谱到墨水屏」即可推送到屏幕。每天早晨系统默认自动更新第 1 个方案到墨水屏。")
+    mode_tip = "当前为【🌟 自由推荐模式 (不依赖库存)】" if is_free else "当前为【🧊 结合冰箱库存模式 (优先消耗临期)】"
+    st.caption(f"💡 {mode_tip}。早晚各提供 3 个方案供挑选。点击下方【方案 ① / ② / ③】可实时切换查看；确认后点击上方「手动更新当前展示的菜谱到墨水屏」即可推送到屏幕。每天早晨系统默认自动更新第 1 个方案到墨水屏。")
     st.markdown("---")
 
     # 左右两栏展示今日早餐与晚餐
@@ -289,9 +344,11 @@ with tab_menu:
                 st.markdown("---")
                 btn_c1, btn_c2 = st.columns(2)
                 with btn_c1:
-                    if st.button("🔄 重抽 3 套新早餐方案", key="reroll_b_3"):
-                        with st.spinner("正在重新规划 3 道早餐候选..."):
-                            new_b_list = llm_service.generate_meal_options(meal_type="breakfast", count=3)
+                    reroll_b_label = "🔄 重抽 3 套新早餐 (自由推荐)" if is_free else "🔄 重抽 3 套新早餐 (结合库存)"
+                    reroll_b_spin = "正在自由规划 3 道早餐候选..." if is_free else "正在结合冰箱食材重新规划 3 道早餐候选..."
+                    if st.button(reroll_b_label, key="reroll_b_3"):
+                        with st.spinner(reroll_b_spin):
+                            new_b_list = llm_service.generate_meal_options(meal_type="breakfast", count=3, use_inventory=(not is_free))
                             new_b_ids = []
                             for nb in new_b_list:
                                 bid = database.save_recipe(
@@ -394,9 +451,11 @@ with tab_menu:
                 st.markdown("---")
                 btn_d1, btn_d2 = st.columns(2)
                 with btn_d1:
-                    if st.button("🔄 重抽 3 套新晚餐方案", key="reroll_d_3"):
-                        with st.spinner("正在重新规划 3 道晚餐候选..."):
-                            new_d_list = llm_service.generate_meal_options(meal_type="dinner", count=3)
+                    reroll_d_label = "🔄 重抽 3 套新晚餐 (自由推荐)" if is_free else "🔄 重抽 3 套新晚餐 (结合库存)"
+                    reroll_d_spin = "正在自由规划 3 道晚餐候选..." if is_free else "正在结合冰箱食材重新规划 3 道晚餐候选..."
+                    if st.button(reroll_d_label, key="reroll_d_3"):
+                        with st.spinner(reroll_d_spin):
+                            new_d_list = llm_service.generate_meal_options(meal_type="dinner", count=3, use_inventory=(not is_free))
                             new_d_ids = []
                             for nd in new_d_list:
                                 did = database.save_recipe(
@@ -456,7 +515,7 @@ with tab_menu:
 # =========================================================================
 with tab_inventory:
     st.markdown("### 🧊 冰箱食材库存清单")
-    st.caption("系统生成菜谱时，将优先消耗标记为“⚠️需优先消耗”的临期食材，并按现有食材做菜。")
+    st.caption("💡 提示：在【结合冰箱库存模式】下，系统生成菜谱时将优先消耗标记为“⚠️需优先消耗”的临期食材；若处于【自由推荐模式】（默认），则不受库存限制自由规划推荐优质菜品。")
 
     # 1. AI 智能批量导入食材表单
     with st.expander("✨ 智能批量录入食材 (粘贴文本 / AI 自动识别并入库)", expanded=True):

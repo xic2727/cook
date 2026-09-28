@@ -17,6 +17,7 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent
 sys.path.append(str(BASE_DIR))
 
+import config
 import database
 import epd_service
 import llm_service
@@ -39,7 +40,8 @@ def main():
     
     # 1. 如果今日尚未生成菜谱候选，自动调用 AI 生成各 3 套方案并入库
     if not b_candidates or not d_candidates:
-        logger.info(f"今日 ({today_iso}) 尚未生成早晚餐候选，正在调用 AI 规划各 3 套方案...")
+        mode_str = "结合冰箱库存模式" if getattr(config, "RECIPE_MODE", "free") == "inventory" else "自由推荐模式(不依赖库存)"
+        logger.info(f"今日 ({today_iso}) 尚未生成早晚餐候选，当前模式 [{mode_str}]，正在调用 AI 规划各 3 套方案...")
         try:
             plan = llm_service.generate_full_day_options()
             b_ids = []

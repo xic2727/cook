@@ -9,8 +9,19 @@ import database
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = """你是一位经验丰富、注重营养均衡与健康烹饪的专业家庭营养师与生活助手。
-你的任务是根据冰箱里的现有食材，规划健康美味、高效省时的家常菜谱。
+def get_system_prompt(use_inventory: bool = False) -> str:
+    """根据模式获取 System Prompt（自由推荐模式 或 结合冰箱库存模式）"""
+    if use_inventory:
+        task_desc = "你的任务是根据冰箱里的现有食材，规划健康美味、高效省时的家常菜谱。"
+        ingredient_rule = """3. 食材利用：
+   - 必须优先使用冰箱里标有“⚠️需优先消耗”的临期食材，最大化利用现有食材，油盐酱醋葱姜等基础佐料默认厨房常备。"""
+    else:
+        task_desc = "你的任务是根据儿童与家庭健康营养需求，规划健康美味、营养丰富、高效省时的优质家常菜谱（不依赖冰箱现有库存，自由挑选新鲜易买的家常食材）。"
+        ingredient_rule = """3. 食材选用：
+   - 自由挑选新鲜营养、常见易购的优质家常食材，不受冰箱现有库存限制。注重荤素搭配、色彩丰富与营养互补，油盐酱醋葱姜等基础佐料默认厨房常备。"""
+
+    return f"""你是一位经验丰富、注重营养均衡与健康烹饪的专业家庭营养师与生活助手。
+{task_desc}
 
 【核心定制原则】：
 1. 营养与口感：
@@ -20,15 +31,14 @@ SYSTEM_PROMPT = """你是一位经验丰富、注重营养均衡与健康烹饪�
 2. 早晚餐场景要求：
    - 【早餐】：制作耗时严格控制在 15~20 分钟内！以“优质蛋白+温和复合碳水+暖胃饮品/汤水”为主（如蛋饼、软面条、馄饨、三明治、燕麦粥），营养快手，元气充沛。
    - 【晚餐】：耗时 25~35 分钟。注重荤素搭配（1荤1素或营养焖/炖/蒸），补足膳食纤维，清淡易消化，晚间不积食。
-3. 食材利用：
-   - 必须优先使用冰箱里标有“⚠️需优先消耗”的临期食材，最大化利用现有食材，油盐酱醋葱姜等基础佐料默认厨房常备。
+{ingredient_rule}
 4. 步骤精炼：
    - 步骤必须极简！严格提炼为清晰易懂的 3 步（每步不超过 35 个字），方便在墨水屏上一目了然。
 
 【输出格式要求】：
 必须严格且只返回合法的 JSON 对象，不要添加任何 markdown 代码块外部的闲聊。
 JSON 字段定义：
-{
+{{
   "title": "菜品名称（如：西红柿牛肉碎焖饭 / 鲜虾蛋饼+温牛奶）",
   "meal_type": "breakfast 或 dinner",
   "nutrition_tag": "营养标签（如：高蛋白 · 护眼维A · 补钙）",
@@ -40,8 +50,10 @@ JSON 字段定义：
     "3. 第三步动作..."
   ],
   "cooking_tip": "一句实用的烹饪或风味贴士（如：切小丁更易嚼，酸甜开胃）"
-}
+}}
 """
+
+SYSTEM_PROMPT = get_system_prompt(use_inventory=False)
 
 # 内置兜底示例菜谱池（当 API Key 未配置或网络不通时无缝应急）
 FALLBACK_BREAKFASTS = [
@@ -161,21 +173,31 @@ def get_client() -> Optional[OpenAI]:
         base_url=base_url
     )
 
-def generate_meal_options(meal_type: str = "breakfast", count: int = 3, custom_prompt: str = "") -> List[Dict[str, Any]]:
-    """生成指定餐点类型的多套候选方案（默认3套）"""
+def generate_meal_options(meal_type: str = "breakfast", count: int = 3, custom_prompt: str = "", use_inventory: Optional[bool] = None) -> List[Dict[str, Any]]:
+    """生成指定餐点类型的多套候选方案（默认3套，默认自由模式不依赖冰箱库存）"""
+    if use_inventory is None:
+        use_inventory = (getattr(config, "RECIPE_MODE", "free") == "inventory")
+
     client = get_client()
-    inventory_text = database.get_all_ingredients_text()
     recent_titles = database.get_recent_menu_titles(days=4)
     recent_text = f"最近几天已吃过的菜品（请避免重复）：{', '.join(recent_titles)}" if recent_titles else "暂无近期重复菜品"
     
     meal_desc = '活力早餐（耗时<=20分钟，营养快手暖胃）' if meal_type == 'breakfast' else '营养晚餐（耗时<=35分钟，荤素均衡清淡）'
+    
+    if use_inventory:
+        inventory_section = database.get_all_ingredients_text()
+        default_extra = "请平衡营养与口感，严格满足3步极简烹饪，优先使用冰箱现有及临期食材。"
+    else:
+        inventory_section = "【模式说明】：自由推荐模式（不依赖冰箱现有库存，请挑选常见易买、营养均衡的优质食材自由搭配）。"
+        default_extra = "请平衡营养与口感，自由选用丰富营养的应季家常食材，严格满足3步极简烹饪。"
+
     user_prompt = f"""
 请为今日规划 {count} 道各不相同的【{meal_desc}】候选方案。
 
-{inventory_text}
+{inventory_section}
 {recent_text}
 
-特殊额外要求：{custom_prompt if custom_prompt else "请平衡营养与口感，严格满足3步极简烹饪。"}
+特殊额外要求：{custom_prompt if custom_prompt else default_extra}
 
 严格输出 JSON 格式如下：
 {{
@@ -202,7 +224,7 @@ def generate_meal_options(meal_type: str = "breakfast", count: int = 3, custom_p
         response = client.chat.completions.create(
             model=config.MINIMAX_MODEL,
             messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "system", "content": get_system_prompt(use_inventory=use_inventory)},
                 {"role": "user", "content": user_prompt}
             ],
             temperature=0.7
@@ -228,20 +250,29 @@ def generate_meal_options(meal_type: str = "breakfast", count: int = 3, custom_p
         pool = FALLBACK_BREAKFASTS if meal_type == "breakfast" else FALLBACK_DINNERS
         return pool[:count]
 
-def generate_full_day_options(custom_prompt: str = "") -> Dict[str, List[Dict[str, Any]]]:
-    """一次性生成今日 3 道候选早餐和 3 道候选晚餐"""
+def generate_full_day_options(custom_prompt: str = "", use_inventory: Optional[bool] = None) -> Dict[str, List[Dict[str, Any]]]:
+    """一次性生成今日 3 道候选早餐和 3 道候选晚餐（默认自由模式不依赖冰箱库存）"""
+    if use_inventory is None:
+        use_inventory = (getattr(config, "RECIPE_MODE", "free") == "inventory")
+
     client = get_client()
-    inventory_text = database.get_all_ingredients_text()
     recent_titles = database.get_recent_menu_titles(days=4)
     recent_text = f"最近几天已吃过的菜品（请避免重复）：{', '.join(recent_titles)}" if recent_titles else "暂无近期重复菜品"
+
+    if use_inventory:
+        inventory_section = database.get_all_ingredients_text()
+        default_extra = "请平衡营养与口感，充分利用冰箱现有及临期食材。"
+    else:
+        inventory_section = "【模式说明】：自由推荐模式（不依赖冰箱现有库存，请挑选常见易买、营养丰富的家常食材自由规划配餐）。"
+        default_extra = "请平衡营养与口感，自由选用丰富营养的食材进行科学配餐。"
 
     user_prompt = f"""
 请为今日规划 3 道不同的候选早餐（制作耗时<=20分钟，营养快手暖胃）和 3 道不同的候选晚餐（耗时<=35分钟，荤素均衡清淡），均严格满足3步极简烹饪。
 
-{inventory_text}
+{inventory_section}
 {recent_text}
 
-特殊额外要求：{custom_prompt if custom_prompt else "请平衡营养与口感，充分利用冰箱现有及临期食材。"}
+特殊额外要求：{custom_prompt if custom_prompt else default_extra}
 
 请严格输出合法的 JSON 对象，格式如下：
 {{
@@ -281,7 +312,7 @@ def generate_full_day_options(custom_prompt: str = "") -> Dict[str, List[Dict[st
         response = client.chat.completions.create(
             model=config.MINIMAX_MODEL,
             messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "system", "content": get_system_prompt(use_inventory=use_inventory)},
                 {"role": "user", "content": user_prompt}
             ],
             temperature=0.7
@@ -319,14 +350,14 @@ def generate_full_day_options(custom_prompt: str = "") -> Dict[str, List[Dict[st
             "dinners": FALLBACK_DINNERS[:3]
         }
 
-def generate_meal(meal_type: str = "breakfast", custom_prompt: str = "") -> Dict[str, Any]:
+def generate_meal(meal_type: str = "breakfast", custom_prompt: str = "", use_inventory: Optional[bool] = None) -> Dict[str, Any]:
     """生成单道餐点（兼容旧调用）"""
-    options = generate_meal_options(meal_type=meal_type, count=1, custom_prompt=custom_prompt)
+    options = generate_meal_options(meal_type=meal_type, count=1, custom_prompt=custom_prompt, use_inventory=use_inventory)
     return options[0] if options else (FALLBACK_BREAKFASTS[0] if meal_type == "breakfast" else FALLBACK_DINNERS[0])
 
-def generate_full_day_plan(custom_prompt: str = "") -> Dict[str, Any]:
+def generate_full_day_plan(custom_prompt: str = "", use_inventory: Optional[bool] = None) -> Dict[str, Any]:
     """生成今日一日两餐搭配（兼容旧调用）"""
-    opts = generate_full_day_options(custom_prompt=custom_prompt)
+    opts = generate_full_day_options(custom_prompt=custom_prompt, use_inventory=use_inventory)
     return {
         "breakfast": opts["breakfasts"][0],
         "dinner": opts["dinners"][0]
