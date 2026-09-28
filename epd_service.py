@@ -53,7 +53,12 @@ def get_hardware_status() -> Dict[str, Any]:
 
 def is_hardware_available() -> bool:
     """检查是否可以直接驱动物理墨水屏"""
-    return HAS_HARDWARE_EPD and (config.EPD_MODE in ["auto", "hardware"])
+    if config.EPD_MODE == "mock":
+        return False
+    if config.EPD_MODE == "hardware":
+        return HAS_HARDWARE_EPD
+    # auto 模式：仅在存在 SPI 设备节点（树莓派硬件环境）时启用物理刷屏
+    return HAS_HARDWARE_EPD and os.path.exists("/dev/spidev0.0")
 
 def display_on_eink(img_black: Image.Image, img_red: Image.Image) -> Tuple[bool, str]:
     """

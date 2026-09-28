@@ -156,8 +156,9 @@ with st.sidebar:
 # ----------------- 页面主体 -----------------
 st.markdown('<div class="main-title">🍳 每日食谱</div>', unsafe_allow_html=True)
 
-tab_menu, tab_inventory, tab_favorites = st.tabs([
+tab_menu, tab_cuisine, tab_inventory, tab_favorites = st.tabs([
     "🍽️ 今日食谱 & 墨水屏同步", 
+    "🏮 特色菜系点菜",
     "🧊 冰箱食材管理", 
     "❤️ 红心菜谱库"
 ])
@@ -511,7 +512,214 @@ with tab_menu:
         st.caption(f"🕒 上次成功同步到屏幕时间: {synced_at}")
 
 # =========================================================================
-# TAB 2: 冰箱食材管理
+# TAB 2: 特色菜系点菜 & 墨水屏同步
+# =========================================================================
+with tab_cuisine:
+    st.markdown("### 🏮 特色菜系点菜定制")
+    st.caption("AI 专属大厨定制：探索川、粤、鲁、苏、浙、湘、闽、徽等传统名菜及特色佳肴，支持多道菜品定制与 800×480 墨水屏一键排版同步。")
+
+    # 1. 定制参数配置
+    with st.container(border=True):
+        col_cui1, col_cui2 = st.columns([3, 2])
+        with col_cui1:
+            cuisine_presets = [
+                "川菜 (麻辣鲜香 · 百菜百味)",
+                "粤菜 (清鲜嫩滑 · 原汁原味)",
+                "鲁菜 (咸鲜浓郁 · 葱香爆炒)",
+                "苏菜 (咸甜适中 · 汤鲜软烂)",
+                "浙菜 (清香脆嫩 · 时鲜精细)",
+                "湘菜 (香辣酸辣 · 鲜浓开胃)",
+                "闽菜 (鲜香脆爽 · 尤重糟香)",
+                "徽菜 (原汁原味 · 擅长火腿烧炖)",
+                "东北菜 (酱香浓郁 · 爽口实在)",
+                "西北风味 (孜然喷香 · 面食牛羊)",
+                "自定义菜系/特色风格"
+            ]
+            selected_preset = st.selectbox("选择目标菜系", options=cuisine_presets, index=0)
+            if "自定义" in selected_preset:
+                custom_cuisine_input = st.text_input("请输入自定义菜系或风格（如：潮汕风味、云南野生菌、日式家常等）", value="潮汕风味")
+                actual_cuisine = custom_cuisine_input.strip() if custom_cuisine_input.strip() else "特色菜系"
+            else:
+                actual_cuisine = selected_preset.split(" ")[0]
+
+        with col_cui2:
+            dish_count_options = [2, 1, 3, 4]
+            dish_count = st.selectbox(
+                "定制菜品数量",
+                options=dish_count_options,
+                index=0,
+                format_func=lambda x: f"{x} 道菜 (推荐一荤一素组合)" if x == 2 else (f"{x} 道菜 (招牌硬菜精做)" if x == 1 else (f"{x} 道菜 (两菜一汤标准席)" if x == 3 else f"{x} 道菜 (丰盛四菜套餐)"))
+            )
+
+        col_pref1, col_pref2 = st.columns([3, 3])
+        with col_pref1:
+            flavor_preference = st.selectbox(
+                "口味偏好要求",
+                options=[
+                    "经典地道风味 (原汁原味/特色正宗)",
+                    "温和微辣/少油少盐 (适合家庭与儿童)",
+                    "清淡原汁原味 (少油低脂/轻负担)",
+                    "酸辣鲜香浓郁 (超级开胃下饭)"
+                ],
+                index=0
+            )
+        with col_pref2:
+            custom_dish_req = st.text_input(
+                "指定食材或想吃的特定菜名（可选）",
+                placeholder="例如：想吃牛肉和豆腐、水煮肉片、或多搭配菌菇等"
+            )
+
+        btn_gen_cuisine = st.button("🍳 AI 大厨开始定制菜系菜谱", type="primary", use_container_width=True)
+
+    # 2. 触发生成
+    if btn_gen_cuisine:
+        with st.spinner(f"👩‍🍳 正在请教名厨，规划 {dish_count} 道地道【{actual_cuisine}】菜谱..."):
+            dishes = llm_service.generate_cuisine_dishes(
+                cuisine=actual_cuisine,
+                count=dish_count,
+                preference=flavor_preference,
+                custom_prompt=custom_dish_req
+            )
+            st.session_state["cuisine_dishes"] = dishes
+            st.session_state["current_cuisine_name"] = actual_cuisine
+            st.toast(f"成功定制 {len(dishes)} 道地道【{actual_cuisine}】菜谱！", icon="🎉")
+            st.rerun()
+
+    # 3. 结果展示区
+    generated_dishes = st.session_state.get("cuisine_dishes", [])
+    active_cuisine_name = st.session_state.get("current_cuisine_name", "经典特色菜")
+
+    if generated_dishes:
+        st.markdown(f"#### 🥢 AI 大厨为您呈现：【{active_cuisine_name}】特选佳肴")
+        
+        # 逐道展示菜品卡片
+        for idx, d in enumerate(generated_dishes):
+            with st.container(border=True):
+                c_head1, c_head2 = st.columns([4, 2])
+                with c_head1:
+                    st.subheader(f"#{idx+1} · {d.get('title', '特色名菜')}")
+                    st.markdown(f"**● 菜系与风味**：`:red[{d.get('cuisine', active_cuisine_name)}]` · `:red[{d.get('nutrition_tag', '风味绝佳')}]` ｜ ⏱️ 预计用时: {d.get('prep_time', '20分钟')}")
+                with c_head2:
+                    col_btn_f1, col_btn_f2 = st.columns(2)
+                    with col_btn_f1:
+                        if st.button("❤️ 收藏", key=f"fav_cui_{idx}_{d.get('title')}", use_container_width=True):
+                            database.save_recipe(
+                                title=d["title"],
+                                meal_type="cuisine",
+                                nutrition_tag=d.get("nutrition_tag", ""),
+                                ingredients=d.get("ingredients", []),
+                                steps=d.get("steps", []),
+                                prep_time=d.get("prep_time", "20分钟"),
+                                is_favorite=1,
+                                daughter_notes=f"【{d.get('cuisine', active_cuisine_name)}】{d.get('cooking_tip', '')}"
+                            )
+                            st.toast(f"已将【{d['title']}】存入红心菜谱库！", icon="❤️")
+                    with col_btn_f2:
+                        pop_menu = st.popover("🍱 设为今日...")
+                        with pop_menu:
+                            today_iso = date.today().isoformat()
+                            if st.button("设为今日早餐", key=f"set_b_{idx}"):
+                                bid = database.save_recipe(
+                                    title=d["title"],
+                                    meal_type="breakfast",
+                                    nutrition_tag=d.get("nutrition_tag", ""),
+                                    ingredients=d.get("ingredients", []),
+                                    steps=d.get("steps", []),
+                                    prep_time=d.get("prep_time", "15分钟"),
+                                    is_favorite=0,
+                                    daughter_notes=d.get("cooking_tip") or ""
+                                )
+                                database.set_daily_menu(today_iso, breakfast_id=bid, dinner_id=None)
+                                st.toast(f"已将【{d['title']}】设为今日早餐！", icon="☀️")
+                                st.rerun()
+                            if st.button("设为今日晚餐", key=f"set_d_{idx}"):
+                                did = database.save_recipe(
+                                    title=d["title"],
+                                    meal_type="dinner",
+                                    nutrition_tag=d.get("nutrition_tag", ""),
+                                    ingredients=d.get("ingredients", []),
+                                    steps=d.get("steps", []),
+                                    prep_time=d.get("prep_time", "25分钟"),
+                                    is_favorite=0,
+                                    daughter_notes=d.get("cooking_tip") or ""
+                                )
+                                database.set_daily_menu(today_iso, breakfast_id=None, dinner_id=did)
+                                st.toast(f"已将【{d['title']}】设为今日晚餐！", icon="🌙")
+                                st.rerun()
+
+                if d.get("cooking_tip"):
+                    st.info(f"💡 **大厨秘诀**：{d['cooking_tip']}")
+
+                st.markdown("**■ 食材用量**")
+                ing_list = d.get("ingredients", [])
+                st.markdown(" • " + "   • ".join(ing_list))
+
+                st.markdown("**■ 制作步骤 (极简)**")
+                for s in d.get("steps", []):
+                    st.markdown(f"- {s}")
+
+        st.markdown("---")
+
+        # 4. 墨水屏双栏排版与同步控制区
+        st.markdown("### 🖥️ 同步到 7.5 寸黑白红墨水屏")
+        st.caption("微雪 7.5寸 墨水屏（800×480）支持同屏并列展示两道菜品。你可以从上方生成的菜谱中任意指定左栏与右栏菜品，并一键推送到墨水屏！")
+
+        dish_titles = [f"{i+1}. {item['title']}" for i, item in enumerate(generated_dishes)]
+
+        col_sel_left, col_sel_right = st.columns(2)
+        with col_sel_left:
+            idx_left_default = 0
+            sel_left_title = st.selectbox("选择【屏幕左栏】展示的菜品", options=dish_titles, index=idx_left_default, key="cui_screen_left")
+            selected_left_dish = generated_dishes[dish_titles.index(sel_left_title)]
+
+        with col_sel_right:
+            idx_right_default = 1 if len(dish_titles) > 1 else 0
+            options_right = ["(自动生成佐餐热汤搭配)"] + dish_titles if len(dish_titles) == 1 else dish_titles
+            sel_right_title = st.selectbox(
+                "选择【屏幕右栏】展示的菜品",
+                options=options_right,
+                index=idx_right_default if len(dish_titles) > 1 else 0,
+                key="cui_screen_right"
+            )
+            if sel_right_title.startswith("(自动"):
+                selected_right_dish = None
+            else:
+                selected_right_dish = generated_dishes[dish_titles.index(sel_right_title)]
+
+        # 组装墨水屏所需数据
+        cuisine_menu_data = {
+            "header_title": f"★ {active_cuisine_name}精选美馔",
+            "left_dish": selected_left_dish,
+            "right_dish": selected_right_dish,
+            "left_label": f"【 {selected_left_dish.get('cuisine', active_cuisine_name)} · 招牌 】",
+            "right_label": f"【 {selected_right_dish.get('cuisine', active_cuisine_name) if selected_right_dish else '佐餐建议'} 】"
+        }
+
+        # 实时预览渲染图
+        cui_img_prev, _, _ = renderer.render_eink_display(cuisine_menu_data, date.today())
+
+        col_btn_sync, col_rot = st.columns([3, 2])
+        with col_btn_sync:
+            if st.button("📺 立即将所选菜谱推送到 7.5寸 墨水屏", type="primary", use_container_width=True):
+                with st.spinner("正在排版并向 7.5寸 墨水屏推送菜系画面..."):
+                    success, msg, _ = epd_service.sync_menu_to_screen(cuisine_menu_data, date.today())
+                    if success:
+                        st.toast(msg, icon="🎉")
+                    else:
+                        st.error(msg)
+                    st.rerun()
+
+        with col_rot:
+            show_rot_cui = st.checkbox("🔄 预览 180° 物理旋转画面", value=False, key="cui_rot_preview")
+
+        display_cui_img = cui_img_prev.rotate(180) if show_rot_cui else cui_img_prev
+        st.image(display_cui_img, caption="微雪 7.5inch e-Paper (B) V2 墨水屏 1:1 菜系排版预览", use_container_width=True)
+
+    else:
+        st.info("💡 欢迎使用特色菜系定制功能！请在上方选择感兴趣的菜系风格（如川菜、粤菜、苏菜等），点击「AI 大厨开始定制菜谱」即可生成丰富做法与墨水屏专属排版。")
+
+# =========================================================================
+# TAB 3: 冰箱食材管理
 # =========================================================================
 with tab_inventory:
     st.markdown("### 🧊 冰箱食材库存清单")
@@ -660,14 +868,14 @@ with tab_inventory:
         st.info("当前分类暂无食材，请在上方添加！")
 
 # =========================================================================
-# TAB 3: 红心菜谱库
+# TAB 4: 红心菜谱库
 # =========================================================================
 with tab_favorites:
     st.markdown("### ❤️ 红心菜谱库")
     st.caption("这里是吃过且特别喜欢的菜品，打红心后永久留存。可一键安排到今日食谱，或写下口味偏好。")
 
-    fav_filter = st.radio("筛选餐别", ["全部", "早餐", "晚餐"], horizontal=True)
-    m_type = "breakfast" if fav_filter == "早餐" else ("dinner" if fav_filter == "晚餐" else None)
+    fav_filter = st.radio("筛选餐别/品类", ["全部", "早餐", "晚餐", "特色菜系"], horizontal=True)
+    m_type = "breakfast" if fav_filter == "早餐" else ("dinner" if fav_filter == "晚餐" else ("cuisine" if fav_filter == "特色菜系" else None))
     
     fav_recipes = database.get_recipes(meal_type=m_type, only_favorites=True)
 
@@ -676,7 +884,7 @@ with tab_favorites:
             with st.container(border=True):
                 f_col1, f_col2 = st.columns([4, 2])
                 with f_col1:
-                    tag_type = "【早餐】" if fav["meal_type"] == "breakfast" else "【晚餐】"
+                    tag_type = "【早餐】" if fav["meal_type"] == "breakfast" else ("【晚餐】" if fav["meal_type"] == "dinner" else "【特色菜系】")
                     st.markdown(f"#### ❤️ {tag_type} {fav['title']}")
                     st.markdown(f"**● 营养要点**：`:red[{fav.get('nutrition_tag', '')}]` ｜ ⏱️ 用时: {fav.get('prep_time', '')}")
                     

@@ -148,17 +148,31 @@ def extract_json_from_model_output(content: str) -> Any:
     # 1. 过滤掉 <think>...</think> 思考链内容
     cleaned = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL).strip()
     
+    candidates = []
     # 2. 提取 ```json ... ``` 块
     code_match = re.search(r'```(?:json)?\s*([\{\[].*?[\}\]])\s*```', cleaned, re.DOTALL)
     if code_match:
-        return json.loads(code_match.group(1).strip())
+        candidates.append(code_match.group(1).strip())
         
     # 3. 寻找最外层的 { ... } 或 [ ... ]
     brace_match = re.search(r'([\{\[].*[\}\]])', cleaned, re.DOTALL)
     if brace_match:
-        return json.loads(brace_match.group(1).strip())
+        candidates.append(brace_match.group(1).strip())
         
-    return json.loads(cleaned)
+    candidates.append(cleaned)
+
+    for cand in candidates:
+        try:
+            return json.loads(cand)
+        except Exception:
+            # 尝试修复常见 JSON 语法瑕疵：末尾多余逗号 (trailing comma)
+            fixed = re.sub(r',\s*([\}\]])', r'\1', cand)
+            try:
+                return json.loads(fixed)
+            except Exception:
+                continue
+
+    raise ValueError(f"无法从大模型返回内容中解析有效 JSON")
 
 def get_client() -> Optional[OpenAI]:
     """获取 OpenAI 兼容客户端（适配 MiniMax）"""
@@ -362,6 +376,237 @@ def generate_full_day_plan(custom_prompt: str = "", use_inventory: Optional[bool
         "breakfast": opts["breakfasts"][0],
         "dinner": opts["dinners"][0]
     }
+
+# --- 特色菜系经典兜底菜谱库 ---
+FALLBACK_CUISINES: Dict[str, List[Dict[str, Any]]] = {
+    "川菜": [
+        {
+            "title": "经典麻婆豆腐",
+            "cuisine": "川菜",
+            "nutrition_tag": "优质植物蛋白 · 香浓开胃",
+            "prep_time": "15分钟",
+            "ingredients": ["嫩豆腐 1盒", "牛肉末 80g", "郫县豆瓣酱 1勺", "青蒜苗 2根", "花椒粉 少许", "水淀粉 半碗"],
+            "steps": [
+                "1. 豆腐切方块沸水加少许盐焯水1分钟沥干备用",
+                "2. 热油下牛肉末煸炒酥香，下豆瓣酱蒜末炒出红油，加小半碗水煮沸",
+                "3. 下入豆腐中小火入味3分钟，分两次勾薄芡，撒青蒜碎与花椒粉出锅"
+            ],
+            "cooking_tip": "分次勾薄芡能让汤汁紧紧包裹豆腐，出锅撒现磨花椒粉是灵魂"
+        },
+        {
+            "title": "宫保鸡丁",
+            "cuisine": "川菜",
+            "nutrition_tag": "高蛋白 · 糊辣荔枝味",
+            "prep_time": "20分钟",
+            "ingredients": ["鸡胸肉 250g", "熟花生米 半碗", "干辣椒 5个", "大葱白 2段", "生抽香醋糖 适量"],
+            "steps": [
+                "1. 鸡肉切丁加生抽淀粉抓匀腌制，碗中调好糖醋酱油水淀粉料汁",
+                "2. 热油下花椒干辣椒段微火炸出香气，滑入鸡丁大火炒至变白断生",
+                "3. 倒入大葱段快速翻炒，倒入调味汁大火裹匀，出锅前拌入脆花生米"
+            ],
+            "cooking_tip": "花生米出锅前最后放，才能保持酥脆；调汁酸甜带微咸更地道"
+        },
+        {
+            "title": "鱼香肉丝",
+            "cuisine": "川菜",
+            "nutrition_tag": "荤素均衡 · 酸甜下饭",
+            "prep_time": "20分钟",
+            "ingredients": ["里脊肉 200g", "黑木耳 30g", "胡萝卜 半根", "青椒 1个", "泡椒/豆瓣酱 1勺"],
+            "steps": [
+                "1. 里脊肉切细丝淀粉抓匀，木耳胡萝卜青椒切细丝备用",
+                "2. 碗中调入香醋、白糖、生抽与水淀粉调成鱼香汁",
+                "3. 油热滑熟肉丝盛出，锅底炒香泡椒蒜末，下配菜炒软后合入肉丝淋汁收浓"
+            ],
+            "cooking_tip": "糖醋比例约 1:1，大火快翻使芡汁抱匀肉丝"
+        }
+    ],
+    "粤菜": [
+        {
+            "title": "广式滑蛋牛肉",
+            "cuisine": "粤菜",
+            "nutrition_tag": "优质双蛋白 · 软嫩鲜甜",
+            "prep_time": "15分钟",
+            "ingredients": ["牛里脊 150g", "鸡蛋 3个", "香葱 2根", "鲜牛奶 2勺", "生抽少许"],
+            "steps": [
+                "1. 牛肉逆纹切薄片加生抽水淀粉抓匀腌制，鸡蛋打散加入少许牛奶与葱花",
+                "2. 热锅凉油下牛肉片大火滑炒至八成熟（约30秒）迅速盛出",
+                "3. 将牛肉倒入蛋液拌匀，中小火下锅由外向内轻轻推炒至九分凝固即关火"
+            ],
+            "cooking_tip": "余温会让蛋液彻底熟化，切忌炒过火，滑嫩如丝才地道"
+        },
+        {
+            "title": "白灼鲜虾仁菜心",
+            "cuisine": "粤菜",
+            "nutrition_tag": "高钙富铁 · 清润低脂",
+            "prep_time": "15分钟",
+            "ingredients": ["菜心 200g", "鲜虾仁 100g", "姜丝少许", "低钠蒸鱼豉油 2勺", "香油少许"],
+            "steps": [
+                "1. 锅中水开加少许油和盐，下入菜心焯水1分钟断生捞出码盘",
+                "2. 锅中水沸下入鲜虾仁与姜丝焯煮2分钟至卷曲变红捞起铺在菜心上",
+                "3. 淋上温热的蒸鱼豉油与少许热香油激发出香气即可"
+            ],
+            "cooking_tip": "沸水中加少许油和盐能让青菜碧绿脆嫩不发黄"
+        },
+        {
+            "title": "清蒸鲜鲈鱼片",
+            "cuisine": "粤菜",
+            "nutrition_tag": "优质DHA · 原汁原味",
+            "prep_time": "15分钟",
+            "ingredients": ["鲈鱼柳 250g", "葱丝 适量", "姜丝 适量", "蒸鱼豉油 2勺"],
+            "steps": [
+                "1. 鲈鱼片薄片加姜丝料酒铺入平盘",
+                "2. 蒸锅上汽大火蒸6分钟关火虚蒸2分钟，倒出盘中多余蒸鱼水",
+                "3. 铺上新鲜细葱丝，淋少许热油激香，边沿浇上蒸鱼豉油"
+            ],
+            "cooking_tip": "蒸出的原汁略带腥气倒掉后再浇豉油，口感最鲜美纯正"
+        }
+    ],
+    "鲁菜": [
+        {
+            "title": "葱烧豆腐牛肉碎",
+            "cuisine": "鲁菜",
+            "nutrition_tag": "高钙高蛋白 · 葱香浓郁",
+            "prep_time": "20分钟",
+            "ingredients": ["北豆腐 1块", "大葱白 2根", "牛肉末 80g", "生抽生粉适量"],
+            "steps": [
+                "1. 豆腐切厚片平底锅煎至两面金黄，大葱白切长段备用",
+                "2. 锅中油热下葱白段微火慢煎至表面微焦散发浓香，下肉末煸香",
+                "3. 放入豆腐片加小碗水和生抽焖煮3分钟入味，大火淋薄芡收汁"
+            ],
+            "cooking_tip": "葱油慢煎透彻是鲁菜的精髓，葱香浓郁回甘"
+        },
+        {
+            "title": "传统木须肉",
+            "cuisine": "鲁菜",
+            "nutrition_tag": "荤素全能 · 脆嫩适口",
+            "prep_time": "20分钟",
+            "ingredients": ["猪里脊 150g", "鸡蛋 2个", "黄瓜 半根", "黑木耳 适量", "生抽少许"],
+            "steps": [
+                "1. 鸡蛋炒散盛出，肉片加少许生抽淀粉抓匀，黄瓜切菱形片",
+                "2. 热油下肉片滑炒变色，倒入发好的木耳翻炒1分钟",
+                "3. 倒入炒蛋与黄瓜片，加少许生抽盐大火快速翻炒30秒出锅"
+            ],
+            "cooking_tip": "黄瓜片最后下锅断生即出，保持清脆爽口的口感"
+        }
+    ],
+    "湘菜": [
+        {
+            "title": "农家小炒肉",
+            "cuisine": "湘菜",
+            "nutrition_tag": "咸鲜香辣 · 下饭神菜",
+            "prep_time": "20分钟",
+            "ingredients": ["五花肉 150g", "瘦肉 100g", "青椒 3根", "蒜瓣 3个", "豆豉 1小勺"],
+            "steps": [
+                "1. 辣椒滚刀切块干锅煸出虎皮微焦盛出，肉切薄片",
+                "2. 五花肉煸炒出油脂微卷，下入瘦肉片与蒜瓣、豆豉大火翻炒至变色",
+                "3. 倒入煸好的辣椒，加生抽老抽少许盐大火爆炒1分钟出锅"
+            ],
+            "cooking_tip": "辣椒先干锅煸香再合炒，镬气十足，五花肉微焦不腻"
+        }
+    ],
+    "苏菜": [
+        {
+            "title": "清炒大煮干丝",
+            "cuisine": "苏菜",
+            "nutrition_tag": "汤鲜味醇 · 细腻软烂",
+            "prep_time": "20分钟",
+            "ingredients": ["豆腐干 200g", "鲜虾仁 6只", "冬笋/香菇 少许", "清鸡汤 1大碗"],
+            "steps": [
+                "1. 豆腐干细切如发丝开水烫两次去除豆腥，冬笋切细丝备用",
+                "2. 锅中倒入高汤煮沸，下入干丝和笋丝小火慢煨10分钟至入味",
+                "3. 放入鲜虾仁烫熟，少许白胡椒粉和盐调味装盘即可"
+            ],
+            "cooking_tip": "刀工细腻干丝吸饱鸡汤鲜味，鲜美而不油腻"
+        }
+    ]
+}
+
+CUISINE_SYSTEM_PROMPT = """你是一位精通中华各大传统菜系（川菜、粤菜、鲁菜、苏菜、浙菜、闽菜、湘菜、徽菜、东北菜等）及特色烹饪的资深大厨与营养顾问。
+你的任务是根据指定的菜系风格和用户偏好，定制健康美味、地道规范、且步骤精炼清晰的经典菜谱。
+
+【核心烹饪与排版规范】：
+1. 风格地道：精准把握指定菜系的精髓特色（如川菜的麻辣鲜香/复合味型，粤菜的鲜嫩滑爽/原汁原味，鲁菜的葱香脆嫩，湘菜的香辣爽脆等）。
+2. 食材明确：列出清晰的主料、辅料及调味料用量（如“牛里脊 150g”、“嫩豆腐 1盒”），基础油盐水适量。
+3. 步骤精炼：每道菜提炼为清晰易懂的 3 步（每步不超过 35 个字），非常利于墨水屏一目了然排版展示。
+4. 大厨诀窍：每道菜附带 1 句点睛的大厨风味或操作贴士。
+
+【输出格式要求】：
+必须严格且只返回合法的 JSON 对象，不要添加任何 markdown 代码块外部的闲聊。
+JSON 字段定义：
+{
+  "dishes": [
+    {
+      "title": "菜品名称（如：经典麻婆豆腐）",
+      "cuisine": "菜系名称（如：川菜）",
+      "nutrition_tag": "风味/营养标签（如：麻辣鲜香 · 优质蛋白）",
+      "prep_time": "制作耗时（如：15分钟）",
+      "ingredients": ["食材1 数量", "食材2 数量", "..."],
+      "steps": [
+        "1. 第一步动作...",
+        "2. 第二步动作...",
+        "3. 第三步动作..."
+      ],
+      "cooking_tip": "一句大厨贴士"
+    }
+  ]
+}
+"""
+
+def generate_cuisine_dishes(cuisine: str = "川菜", count: int = 2, preference: str = "", custom_prompt: str = "") -> List[Dict[str, Any]]:
+    """生成指定菜系的多道特色菜谱（支持川菜、粤菜等）"""
+    client = get_client()
+    
+    # 清洗菜系名称，去除括号说明
+    clean_cuisine = cuisine.split("(")[0].split("（")[0].strip() if cuisine else "川菜"
+    if not clean_cuisine:
+        clean_cuisine = "川菜"
+        
+    user_prompt = f"""
+请为我定制 {count} 道经典的【{clean_cuisine}】菜谱。
+【风味倾向】：{preference if preference else "地道传统风味，适合家庭烹饪"}
+【定制要求】：{custom_prompt if custom_prompt else "荤素搭配合理，食材易于采购，严格满足3步极简烹饪。"}
+
+严格输出合法的 JSON 对象，要求 dishes 数组中恰好包含 {count} 个候选菜品对象。
+"""
+    # 查找兜底池
+    fallback_pool = FALLBACK_CUISINES.get(clean_cuisine, [])
+    if not fallback_pool:
+        fallback_pool = FALLBACK_CUISINES.get("川菜", []) + FALLBACK_CUISINES.get("粤菜", [])
+
+    if not client:
+        logger.warning(f"未配置 MINIMAX_API_KEY，使用 {clean_cuisine} 经典兜底库")
+        return (fallback_pool * 2)[:count]
+
+    try:
+        response = client.chat.completions.create(
+            model=config.MINIMAX_MODEL,
+            messages=[
+                {"role": "system", "content": CUISINE_SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt}
+            ],
+            temperature=0.7
+        )
+        content = response.choices[0].message.content
+        data = extract_json_from_model_output(content)
+        dishes = data.get("dishes", []) if isinstance(data, dict) else (data if isinstance(data, list) else [])
+        
+        for d in dishes:
+            if not d.get("cuisine"):
+                d["cuisine"] = clean_cuisine
+                
+        if len(dishes) >= count:
+            return dishes[:count]
+            
+        # 补齐不足
+        for fb in fallback_pool:
+            if len(dishes) >= count:
+                break
+            if not any(d.get("title") == fb["title"] for d in dishes):
+                dishes.append(fb)
+        return (dishes * 2)[:count]
+    except Exception as e:
+        logger.error(f"生成【{clean_cuisine}】菜谱失败: {e}，启用兜底")
+        return (fallback_pool * 2)[:count]
 
 # --- 批量食材智能提取 Prompt ---
 BATCH_INGREDIENT_PROMPT = """你是一个专业的智能厨房库存助手。

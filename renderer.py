@@ -126,7 +126,7 @@ def render_eink_display(menu_data: Dict[str, Any], target_date: Optional[date] =
     draw_black.text((28, 14), date_str, fill=0, font=font_date)
 
     # 右侧辅助标语 (优雅的五角星/纯文字，保证无乱码方块)
-    sub_title = "★ 每日营养食谱"
+    sub_title = menu_data.get("header_title") or "★ 每日营养食谱"
     bbox_sub = draw_prev.textbbox((0, 0), sub_title, font=font_sub)
     sub_w = bbox_sub[2] - bbox_sub[0]
     draw_prev.text((width - 30 - sub_w, 20), sub_title, fill=C_RED, font=font_sub)
@@ -146,18 +146,40 @@ def render_eink_display(menu_data: Dict[str, Any], target_date: Optional[date] =
         draw_red.line([(mid_x, y), (mid_x, y + 4)], fill=0, width=1)
 
     # ---------------- 3. 左右两栏内容绘制 ----------------
+    left_dish = menu_data.get("left_dish") or menu_data.get("breakfast")
+    right_dish = menu_data.get("right_dish") or menu_data.get("dinner")
+    left_label = menu_data.get("left_label") or "【 活力早餐 】"
+    right_label = menu_data.get("right_label") or "【 营养晚餐 】"
+
+    # 若只提供了一道菜，右栏自动填充温馨的佐餐搭配推荐卡片
+    if not right_dish and left_dish:
+        right_dish = {
+            "title": "时令佐餐与热汤搭配",
+            "nutrition_tag": "膳食均衡 · 清润爽口",
+            "prep_time": "10分钟",
+            "ingredients": ["时令蔬菜 / 鲜菌菇", "米饭 / 粗粮主食", "鲜美热汤或佐餐小菜"],
+            "steps": [
+                "1. 配一碗热气腾腾的五谷米饭或主食",
+                "2. 搭配一份清淡少油的白灼时蔬或鲜菇汤",
+                "3. 荤素搭配，原汁原味，尽享餐桌美味"
+            ],
+            "daughter_notes": "一菜一汤一饭，营养更周全"
+        }
+        if right_label == "【 营养晚餐 】":
+            right_label = "【 佐餐建议 】"
+
     cols = [
         {
-            "meal_type": "breakfast",
-            "name_label": "【 活力早餐 】",
-            "data": menu_data.get("breakfast"),
+            "meal_type": "left",
+            "name_label": left_label,
+            "data": left_dish,
             "x_start": 25,
             "x_end": mid_x - 18,
         },
         {
-            "meal_type": "dinner",
-            "name_label": "【 营养晚餐 】",
-            "data": menu_data.get("dinner"),
+            "meal_type": "right",
+            "name_label": right_label,
+            "data": right_dish,
             "x_start": mid_x + 18,
             "x_end": width - 25,
         }
